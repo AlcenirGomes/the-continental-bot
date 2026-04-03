@@ -3,11 +3,12 @@ from discord.ext import commands
 from discord import app_commands
 import logging
 
-from ..utils.utils_embeds import criar_embed # Importação relativa corrigida
+from ..utils.utils_embeds import criar_embed
+from ..config import CARGOS_AUTORIZADOS # Importa CARGOS_AUTORIZADOS do config
 
 logger = logging.getLogger(__name__)
 
-AUTHORIZED_ROLES = {"administrador", "01", "02", "03", "gerente"}
+# AUTHORIZED_ROLES foi movido para config.py e importado.
 
 class EmbedModal(discord.ui.Modal, title="Criar Embed"):
     titulo = discord.ui.TextInput(label="Título", placeholder="Digite o título do embed", required=True)
@@ -32,7 +33,7 @@ class EmbedModal(discord.ui.Modal, title="Criar Embed"):
                     else discord.Color(int(color_value))
                 )
             except Exception as e:
-                logger.warning(f"Cor inválida fornecida no EmbedModal: {color_value}. Usando cor padrão. Erro: {e}")
+                logger.warning(f"Cor inválida fornecida no EmbedModal: '{color_value}'. Usando cor padrão. Erro: {e}")
                 pass
 
         embed = criar_embed(
@@ -53,7 +54,6 @@ class EmbedModal(discord.ui.Modal, title="Criar Embed"):
         except Exception as e:
             logger.error(f"Erro ao enviar embed no canal {self.original_interaction.channel.name}: {e}", exc_info=True)
             await interaction.response.send_message(f"❌ Erro ao enviar embed: {e}", ephemeral=True)
-
 
 class DMModal(discord.ui.Modal, title="Enviar DM"):
     mensagem = discord.ui.TextInput(label="Mensagem", style=discord.TextStyle.paragraph, required=True)
@@ -95,9 +95,10 @@ class FalarCog(commands.Cog):
                     usuario: str = None):
 
         membro = interaction.user
-        cargos = {role.name.lower() for role in membro.roles}
+        # CORRIGIDO: Usa CARGOS_AUTORIZADOS do config.py
+        cargos_usuario = {role.name.lower() for role in membro.roles}
 
-        if not (cargos & AUTHORIZED_ROLES):
+        if not (cargos_usuario & set(CARGOS_AUTORIZADOS)): # CORRIGIDO: Comparação com set(CARGOS_AUTORIZADOS)
             await interaction.response.send_message("❌ Você não tem permissão para usar este comando.", ephemeral=True)
             logger.warning(f"Comando /falar: Tentativa de uso sem permissão por {interaction.user.display_name}.")
             return
@@ -108,15 +109,20 @@ class FalarCog(commands.Cog):
             if not usuario:
                 await interaction.response.send_message("❌ Você precisa fornecer um usuário para enviar DM.", ephemeral=True)
                 return
-            target = discord.utils.get(interaction.guild.members, name=usuario)
+            target = None
+            # Tenta encontrar por nome
+            if interaction.guild:
+                target = discord.utils.get(interaction.guild.members, name=usuario)
+
+            # Se não encontrou por nome, tenta por ID
             if not target:
                 try:
                     target = await self.bot.fetch_user(int(usuario))
                 except (ValueError, discord.NotFound):
-                    target = None
+                    pass # Não encontrou por ID, target permanece None
 
             if not target:
-                await interaction.response.send_message("❌ Usuário não encontrado.", ephemeral=True)
+                await interaction.response.send_message("❌ Usuário não encontrado. Tente usar o ID do usuário.", ephemeral=True)
                 logger.warning(f"Comando /falar dm: Usuário '{usuario}' não encontrado.")
                 return
             await interaction.response.send_modal(DMModal(target))

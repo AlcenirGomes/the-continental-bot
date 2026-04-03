@@ -2,8 +2,8 @@ import discord
 from discord.ext import commands
 import logging
 
-from ..config import CANAL_PEDIDO_ID, CARGOS_AUTORIZADOS, ID_MARCADOR_PEDIDO # Importação relativa corrigida
-from ..utils.utils_embeds import criar_embed # Importação relativa corrigida
+from ..config import CANAL_PEDIDO_ID, CARGOS_AUTORIZADOS, ID_MARCADOR_PEDIDO
+from ..utils.utils_embeds import criar_embed
 
 logger = logging.getLogger(__name__)
 
@@ -73,7 +73,8 @@ class EscolhaPedidoView(discord.ui.View):
         custom_id="botao_pedido_normal"
     )
     async def pedido_normal(self, interaction: discord.Interaction, button: discord.ui.Button):
-        from ..cogs.pedido_cog import processar_pedido_logic # Importar a lógica do cog aqui para evitar importação circular
+        # Importar a lógica do cog aqui para evitar importação circular
+        from ..cogs.pedido_cog import processar_pedido_logic
         await interaction.response.send_modal(
             EntregaModal(self.cliente, self.dados, self.bot, self.user, parceria=False)
         )
@@ -86,7 +87,8 @@ class EscolhaPedidoView(discord.ui.View):
         custom_id="botao_pedido_parceria"
     )
     async def pedido_parceria(self, interaction: discord.Interaction, button: discord.ui.Button):
-        from ..cogs.pedido_cog import processar_pedido_logic # Importar a lógica do cog aqui para evitar importação circular
+        # Importar a lógica do cog aqui para evitar importação circular
+        from ..cogs.pedido_cog import processar_pedido_logic
         await interaction.response.send_modal(
             EntregaModal(self.cliente, self.dados, self.bot, self.user, parceria=True)
         )
@@ -110,11 +112,17 @@ class EntregaModal(discord.ui.Modal, title="Previsão de Entrega"):
         self.parceria = parceria
 
     async def on_submit(self, interaction: discord.Interaction):
-        from ..cogs.pedido_cog import processar_pedido_logic # Importar a lógica do cog aqui para evitar importação circular
-        await processar_pedido_logic(
-            interaction, self.cliente, self.dados, self.bot, self.user, self.entrega.value, self.parceria
-        )
-        logger.info(f"EntregaModal: Previsão de entrega '{self.entrega.value}' enviada por {interaction.user.display_name}.")
+        # Importar a lógica do cog aqui para evitar importação circular
+        from ..cogs.pedido_cog import processar_pedido_logic
+        try: # Adicionado try-except para a lógica de processamento
+            await processar_pedido_logic(
+                interaction, self.cliente, self.dados, self.bot, self.user, self.entrega.value, self.parceria
+            )
+            logger.info(f"EntregaModal: Previsão de entrega '{self.entrega.value}' enviada por {interaction.user.display_name}.")
+        except Exception as e:
+            logger.error(f"Erro ao submeter EntregaModal por {interaction.user.display_name}: {e}", exc_info=True)
+            await interaction.response.send_message("❌ Ocorreu um erro ao processar a previsão de entrega.", ephemeral=True)
+
 
 class PedidoView(discord.ui.View):
     def __init__(self, bot):
@@ -127,8 +135,8 @@ class PedidoView(discord.ui.View):
         custom_id="botao_pedido"
     )
     async def open_modal(self, interaction: discord.Interaction, button: discord.ui.Button):
-        cargos = [role.name.lower() for role in interaction.user.roles]
-        if not any(cargo in CARGOS_AUTORIZADOS for cargo in cargos):
+        cargos = {role.name.lower() for role in interaction.user.roles} # CORRIGIDO: Usa set para comparação
+        if not any(cargo in cargos for cargo in CARGOS_AUTORIZADOS): # CORRIGIDO: Compara com CARGOS_AUTORIZADOS
             await interaction.response.send_message(
                 "❌ Você não tem permissão para fazer um pedido.", ephemeral=True
             )
@@ -140,8 +148,10 @@ class PedidoView(discord.ui.View):
             try:
                 if interaction.message:
                     await interaction.message.delete()
-            except Exception:
-                pass
+            except discord.Forbidden:
+                logger.warning(f"Sem permissão para deletar mensagem de interação em {interaction.channel.name} (ID: {interaction.channel.id}).")
+            except Exception as e:
+                logger.error(f"Erro ao deletar mensagem de interação em {interaction.channel.name} (ID: {interaction.channel.id}): {e}", exc_info=True)
         except Exception as e:
             logger.error(f"Erro ao abrir formulário de pedido: {e}", exc_info=True)
             try:

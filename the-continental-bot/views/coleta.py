@@ -2,27 +2,27 @@ import discord
 from discord.ui import Button, View
 import logging
 
-from ..config import ( # Importação relativa corrigida
+from ..config import (
     CARGOS_AUTORIZADOS,
     CATEGORIA_FARM_ID,
     ID_MARCADOR,
 )
-from ..utils.utils_embeds import criar_embed # Importação relativa corrigida
-from ..utils.utils_discord import limpar_e_enviar_view # Importação da nova função utilitária
+from ..utils.utils_embeds import criar_embed
+from ..utils.utils_discord import limpar_e_enviar_view
 # from .farmview import FarmView # FarmView é importada dentro de finalizar_coleta para evitar importação circular
 
 logger = logging.getLogger(__name__)
 
 class AvaliacaoView(View):
-    def __init__(self, mensagem_embed, embed_original, user):
+    def __init__(self, mensagem_embed: discord.Message, embed_original: discord.Embed, user: discord.User):
         super().__init__(timeout=None)
         self.mensagem_embed = mensagem_embed
         self.embed_original = embed_original
         self.user = user
 
     async def verificar_permissao(self, interaction: discord.Interaction) -> bool:
-        cargos = [r.name.lower() for r in interaction.user.roles]
-        if not any(cargo in CARGOS_AUTORIZADOS for cargo in cargos):
+        cargos = {r.name.lower() for r in interaction.user.roles} # CORRIGIDO: Usa set para comparação
+        if not any(cargo in cargos for cargo in CARGOS_AUTORIZADOS): # CORRIGIDO: Compara com CARGOS_AUTORIZADOS
             await interaction.response.send_message(
                 "❌ Você não tem permissão para aprovar ou recusar coletas.",
                 ephemeral=True

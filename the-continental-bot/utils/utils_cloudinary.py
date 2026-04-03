@@ -11,12 +11,24 @@ from dotenv import load_dotenv
 load_dotenv()
 logger = logging.getLogger(__name__)
 
-cloudinary.config(
-    cloud_name=os.getenv("CLOUDINARY_CLOUD_NAME"),
-    api_key=os.getenv("CLOUDINARY_API_KEY"),
-    api_secret=os.getenv("CLOUDINARY_API_SECRET"),
-    secure=True,
-)
+# CORRIGIDO: Adicionado verificação para as variáveis de ambiente da Cloudinary
+CLOUDINARY_CLOUD_NAME = os.getenv("CLOUDINARY_CLOUD_NAME")
+CLOUDINARY_API_KEY    = os.getenv("CLOUDINARY_API_KEY")
+CLOUDINARY_API_SECRET = os.getenv("CLOUDINARY_API_SECRET")
+
+if not all([CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY, CLOUDINARY_API_SECRET]):
+    logger.error("❌ Variáveis de ambiente da Cloudinary não configuradas. O upload de imagens pode falhar.")
+    # Você pode optar por levantar um erro aqui para impedir o bot de iniciar se as chaves forem críticas
+    # raise ValueError("Credenciais da Cloudinary ausentes. Verifique seu arquivo .env.")
+else:
+    cloudinary.config(
+        cloud_name=CLOUDINARY_CLOUD_NAME,
+        api_key=CLOUDINARY_API_KEY,
+        api_secret=CLOUDINARY_API_SECRET,
+        secure=True,
+    )
+    logger.info("✅ Configuração da Cloudinary carregada.")
+
 
 async def baixar_em_memoria(url):
     try:
@@ -31,6 +43,11 @@ async def baixar_em_memoria(url):
         return None
 
 async def fazer_upload_cloudinary(dados, nome_arquivo, pasta="the_continental_prints"):
+    # CORRIGIDO: Verifica se as credenciais da Cloudinary estão configuradas antes de tentar o upload
+    if not all([CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY, CLOUDINARY_API_SECRET]):
+        logger.error("Não é possível fazer upload para Cloudinary: credenciais ausentes.")
+        return None
+
     try:
         loop = asyncio.get_event_loop()
         upload_func = partial(

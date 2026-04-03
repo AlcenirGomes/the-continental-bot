@@ -3,10 +3,10 @@ from discord.ext import commands
 from discord import app_commands
 import logging
 
-from ..views.pedido import PedidoView # Importação relativa corrigida
-from ..utils.utils_embeds import criar_embed # Importação relativa corrigida
-from ..utils.utils_discord import limpar_e_enviar_view # Importação da nova função utilitária
-from ..config import CANAL_PEDIDO_ID, ID_MARCADOR_PEDIDO, CARGOS_AUTORIZADOS # Importação relativa corrigida
+from ..views.pedido import PedidoView
+from ..utils.utils_embeds import criar_embed
+from ..utils.utils_discord import limpar_e_enviar_view
+from ..config import CANAL_PEDIDO_ID, ID_MARCADOR_PEDIDO, CARGOS_AUTORIZADOS
 
 logger = logging.getLogger(__name__)
 
@@ -30,7 +30,7 @@ def calcular_preco(item: str, quantidade: int, parceria: bool = False) -> float:
     else:
         return 160000.0
 
-async def processar_pedido_logic(interaction, cliente, dados, bot, user, entrega, parceria: bool):
+async def processar_pedido_logic(interaction: discord.Interaction, cliente: str, dados: dict, bot: commands.Bot, user: discord.User, entrega: str, parceria: bool):
     canal = bot.get_channel(CANAL_PEDIDO_ID)
     if not canal:
         await interaction.followup.send(
@@ -44,6 +44,7 @@ async def processar_pedido_logic(interaction, cliente, dados, bot, user, entrega
         async for msg in canal.history(limit=100):
             if msg.pinned:
                 continue
+            # CORRIGIDO: Verifica se a mensagem tem embeds e se o título começa com os marcadores
             if not msg.embeds or not (msg.embeds[0].title.startswith("📦") or msg.embeds[0].title.startswith("🤝")):
                 try:
                     await msg.delete()
@@ -64,6 +65,7 @@ async def processar_pedido_logic(interaction, cliente, dados, bot, user, entrega
                     await interaction.followup.send(
                         f"❌ A arma **{item}** não está disponível.", ephemeral=True
                     )
+                    logger.warning(f"Item '{item}' não disponível no pedido de {user.display_name}.")
                     return
                 preco_unitario = calcular_preco(item, qtd, parceria)
                 subtotal = preco_unitario * qtd
@@ -71,8 +73,9 @@ async def processar_pedido_logic(interaction, cliente, dados, bot, user, entrega
                 total += subtotal
             except ValueError:
                 await interaction.followup.send(
-                    f"❌ Quantidade inválida para {item}.", ephemeral=True
+                    f"❌ Quantidade inválida para {item}. Por favor, insira um número inteiro.", ephemeral=True
                 )
+                logger.warning(f"Quantidade inválida para '{item}' no pedido de {user.display_name}.")
                 return
 
         comissao = total * COMISSAO_PERCENTUAL
@@ -126,9 +129,10 @@ async def processar_pedido_logic(interaction, cliente, dados, bot, user, entrega
             description="Clique no botão abaixo para abrir novamente o formulário.",
             color=0x272727,
         )
+        # CORRIGIDO: Passa o bot.user corretamente
         await limpar_e_enviar_view(
             canal,
-            bot.user,
+            bot.user, # Passa o bot.user
             ID_MARCADOR_PEDIDO,
             embed_recriar_pedido,
             PedidoView(bot),
@@ -139,8 +143,10 @@ async def processar_pedido_logic(interaction, cliente, dados, bot, user, entrega
         try:
             if interaction.message:
                 await interaction.message.delete()
-        except Exception:
-            pass
+        except discord.Forbidden:
+            logger.warning(f"Sem permissão para deletar mensagem de interação em {canal.name} (ID: {canal.id}).")
+        except Exception as e:
+            logger.error(f"Erro ao deletar mensagem de interação em {canal.name} (ID: {canal.id}): {e}", exc_info=True)
 
     except Exception as e:
         logger.error(f"❌ Erro ao processar pedido: {e}", exc_info=True)

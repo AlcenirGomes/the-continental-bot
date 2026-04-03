@@ -2,22 +2,28 @@ import discord
 import traceback
 import logging
 from discord.ui import Modal, TextInput, View, Button
-from datetime import datetime
+from datetime import datetime, timedelta # Importado timedelta para cooldown
 import asyncio
 
 from ..config import CARGO_ID, ID_MARCADOR, CATEGORIA_FARM_ID # Importação relativa corrigida
 from ..utils.utils_prints import registrar_print
-from ..utils.utils_embeds import criar_embed # Importação relativa corrigida
-from ..utils.utils_discord import limpar_e_enviar_view # Importação da nova função utilitária
+from ..utils.utils_embeds import criar_embed
+from ..utils.utils_discord import limpar_e_enviar_view
 # from .coleta import AvaliacaoView # AvaliacaoView é importada dentro de on_submit para evitar importação circular
 
 logger = logging.getLogger(__name__)
+
+# --- Cooldown de Farm (sem DB, usando um dicionário em memória) ---
+# ATENÇÃO: Este dicionário será resetado toda vez que o bot for reiniciado.
+# Para persistência, um banco de dados seria necessário.
+user_farm_cooldowns = {}
+FARM_COOLDOWN_SECONDS = 3600 # 1 hora de cooldown
 
 class FarmModalParte1(Modal, title="Coleta de Materiais - Parte 1"):
     def __init__(self):
         super().__init__()
         self.cabo = TextInput(label="Cabo", required=True)
-        self.clip = TextInput(label="Clipper", required=True) # Corrigido para "Clipper"
+        self.clip = TextInput(label="Clipper", required=True)
         self.culatra = TextInput(label="Culatra", required=True)
         self.ferrolho = TextInput(label="Ferrolho", required=True)
         self.slide = TextInput(label="Slide", required=True)
@@ -29,10 +35,28 @@ class FarmModalParte1(Modal, title="Coleta de Materiais - Parte 1"):
         self.add_item(self.slide)
 
     async def on_submit(self, interaction: discord.Interaction):
+        user_id = interaction.user.id
+        now = datetime.now()
+
+        # Verifica o cooldown
+        if user_id in user_farm_cooldowns:
+            last_farm_time = user_farm_cooldowns[user_id]
+            time_since_last_farm = now - last_farm_time
+            if time_since_last_farm.total_seconds() < FARM_COOLDOWN_SECONDS:
+                remaining_time = timedelta(seconds=FARM_COOLDOWN_SECONDS) - time_since_last_farm
+                hours, remainder = divmod(int(remaining_time.total_seconds()), 3600)
+                minutes, seconds = divmod(remainder, 60)
+                await interaction.response.send_message(
+                    f"⏰ {interaction.user.mention}, você precisa esperar mais {hours}h {minutes}m {seconds}s para farmar novamente.",
+                    ephemeral=True
+                )
+                logger.info(f"FarmModalParte1: Cooldown ativo para {interaction.user.display_name}.")
+                return
+
         try:
             valores_parte1 = {
                 "Cabo": self.cabo.value.strip(),
-                "Clipper": self.clip.value.strip(), # Corrigido para "Clipper"
+                "Clipper": self.clip.value.strip(),
                 "Culatra": self.culatra.value.strip(),
                 "Ferrolho": self.ferrolho.value.strip(),
                 "Slide": self.slide.value.strip(),
@@ -57,12 +81,13 @@ class FarmModalParte2(Modal, title="Coleta de Materiais - Parte 2"):
         self.add_item(self.titanio)
 
     async def on_submit(self, interaction: discord.Interaction):
+        user_id = interaction.user.id
         try:
             try:
                 valores = {k: int(v) for k, v in self.valores_parte1.items()}
                 valores["Titânio"] = int(self.titanio.value.strip())
             except ValueError:
-                await interaction.response.send_message("❌ Todos os valores devem ser inteiros.", ephemeral=True)
+                await interaction.response.send_message("❌ Todos os valores devem ser números inteiros.", ephemeral=True)
                 logger.warning(f"Valores não inteiros fornecidos por {interaction.user.display_name} no FarmModalParte2.")
                 return
 
@@ -87,6 +112,8 @@ class FarmModalParte2(Modal, title="Coleta de Materiais - Parte 2"):
 
                 try:
                     await img_msg.delete()
+                except discord.Forbidden:
+                    logger.warning(f"Sem permissão para deletar mensagem de imagem de {interaction.user.display_name}.")
                 except Exception:
                     logger.warning(f"Não foi possível deletar mensagem de imagem de {interaction.user.display_name}.")
                     pass
@@ -107,7 +134,8 @@ class FarmModalParte2(Modal, title="Coleta de Materiais - Parte 2"):
             else:
                 nome_canal_esperado = apelido.lower().replace(" ", "-")
 
-            if not interaction.channel.topic or str(interaction.user.id) not in interaction.channel.topic:
+            # CORRIGIDO: Verifica se o canal é um TextChannel antes de acessar .topic
+            if isinstance(interaction.channel, discord.TextChannel) and (not interaction.channel.topic or str(interaction.user.id) not in interaction.channel.topic):
                 if interaction.channel.name != nome_canal_esperado:
                     try:
                         await interaction.channel.edit(name=nome_canal_esperado)
@@ -145,6 +173,9 @@ class FarmModalParte2(Modal, title="Coleta de Materiais - Parte 2"):
 
             await interaction.channel.send("✅ Dados enviados com sucesso!", delete_after=10)
 
+            # Define o cooldown após o envio bem-sucedido
+            user_farm_cooldowns[user_id] = datetime.now()
+
         except Exception:
             logger.error("Erro ao processar Parte 2 no FarmModalParte2.", exc_info=True)
             await interaction.response.send_message("❌ Erro ao processar Parte 2.", ephemeral=True)
@@ -175,6 +206,8 @@ class FarmView(View):
             try:
                 if interaction.message:
                     await interaction.message.delete()
+            except discord.Forbidden:
+                logger.warning(f"Sem permissão para deletar mensagem de interação em {interaction.channel.name} (ID: {interaction.channel.id}).")
             except Exception:
                 pass
 

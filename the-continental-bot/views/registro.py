@@ -4,8 +4,8 @@ import traceback
 import logging
 
 from ..config import CATEGORIA_FARM_ID, CARGOS_AUTORIZADOS, ID_MARCADOR_REGISTRO, CANAL_REGISTRO_ID, CANAL_APROVACAO_ID, ID_MARCADOR # Importação relativa corrigida
-from ..utils.utils_embeds import criar_embed # Importação relativa corrigida
-from ..utils.utils_discord import limpar_e_enviar_view # Importação da nova função utilitária
+from ..utils.utils_embeds import criar_embed
+from ..utils.utils_discord import limpar_e_enviar_view
 # from .farmview import FarmView # FarmView é importada dentro de finalizar_registro para evitar importação circular
 
 logger = logging.getLogger(__name__)
@@ -44,6 +44,9 @@ class RegistroModal(discord.ui.Modal, title="Registro de Membro"):
                 await interaction.response.send_message("❌ Canal de aprovação não encontrado.", ephemeral=True)
                 logger.warning(f"Canal de aprovação (ID: {CANAL_APROVACAO_ID}) não encontrado ao processar registro de {interaction.user.display_name}.")
 
+        except discord.Forbidden:
+            logger.error(f"Sem permissão para enviar mensagem no canal de aprovação (ID: {CANAL_APROVACAO_ID}).", exc_info=True)
+            await interaction.response.send_message("❌ Não tenho permissão para enviar mensagens no canal de aprovação.", ephemeral=True)
         except Exception:
             logger.error("Erro ao enviar registro no RegistroModal.", exc_info=True)
             try:
@@ -59,8 +62,8 @@ class AvaliacaoRegistroView(View):
         self.passaporte = passaporte
 
     async def verificar_permissao(self, interaction: discord.Interaction) -> bool:
-        cargos = [r.name.lower() for r in interaction.user.roles]
-        if not any(cargo in CARGOS_AUTORIZADOS for cargo in cargos):
+        cargos = {r.name.lower() for r in interaction.user.roles} # CORRIGIDO: Usa set para comparação
+        if not any(cargo in cargos for cargo in CARGOS_AUTORIZADOS): # CORRIGIDO: Compara com CARGOS_AUTORIZADOS
             await interaction.response.send_message(
                 "❌ Você não tem permissão para aprovar/reprovar registros.", ephemeral=True
             )
@@ -101,11 +104,11 @@ class AvaliacaoRegistroView(View):
                     await self.user.edit(nick=novo_nick)
                     logger.info(f"Nick de {self.user.display_name} alterado para {novo_nick}.")
                 except discord.Forbidden:
-                    await interaction.followup.send("⚠️ Não consegui mudar o nick do usuário.", ephemeral=True)
-                    logger.warning(f"Sem permissão para mudar nick de {self.user.display_name}.")
+                    await interaction.followup.send("⚠️ Não consegui mudar o nick do usuário. Verifique minhas permissões.", ephemeral=True)
+                    logger.warning(f"Sem permissão para mudar nick de {self.user.display_name} (ID: {self.user.id}).")
                 except Exception as e:
                     await interaction.followup.send(f"❌ Erro ao mudar nick: {e}", ephemeral=True)
-                    logger.error(f"Erro ao mudar nick de {self.user.display_name}: {e}", exc_info=True)
+                    logger.error(f"Erro ao mudar nick de {self.user.display_name} (ID: {self.user.id}): {e}", exc_info=True)
 
                 cargo_membro = discord.utils.get(interaction.guild.roles, name="Membro")
                 if cargo_membro:
@@ -113,11 +116,11 @@ class AvaliacaoRegistroView(View):
                         await self.user.add_roles(cargo_membro)
                         logger.info(f"Cargo 'Membro' atribuído a {self.user.display_name}.")
                     except discord.Forbidden:
-                        await interaction.followup.send("⚠️ Não consegui atribuir o cargo de Membro.", ephemeral=True)
-                        logger.warning(f"Sem permissão para atribuir cargo 'Membro' a {self.user.display_name}.")
+                        await interaction.followup.send("⚠️ Não consegui atribuir o cargo de Membro. Verifique minhas permissões.", ephemeral=True)
+                        logger.warning(f"Sem permissão para atribuir cargo 'Membro' a {self.user.display_name} (ID: {self.user.id}).")
                     except Exception as e:
                         await interaction.followup.send(f"❌ Erro ao atribuir cargo: {e}", ephemeral=True)
-                        logger.error(f"Erro ao atribuir cargo 'Membro' a {self.user.display_name}: {e}", exc_info=True)
+                        logger.error(f"Erro ao atribuir cargo 'Membro' a {self.user.display_name} (ID: {self.user.id}): {e}", exc_info=True)
 
                 categoria = interaction.guild.get_channel(CATEGORIA_FARM_ID)
                 canal = None
@@ -128,7 +131,8 @@ class AvaliacaoRegistroView(View):
                         interaction.guild.default_role: discord.PermissionOverwrite(view_channel=False),
                         self.user: discord.PermissionOverwrite(view_channel=True, send_messages=True),
                     }
-                    for cargo_nome in ["01", "02", "03", "gerente"]:
+                    # CORRIGIDO: Itera sobre CARGOS_AUTORIZADOS para configurar permissões
+                    for cargo_nome in CARGOS_AUTORIZADOS:
                         cargo = discord.utils.get(interaction.guild.roles, name=cargo_nome)
                         if cargo:
                             overwrites[cargo] = discord.PermissionOverwrite(view_channel=True, send_messages=True)
@@ -141,11 +145,11 @@ class AvaliacaoRegistroView(View):
                         )
                         logger.info(f"Canal de farm '{nome_canal}' criado para {self.user.display_name}.")
                     except discord.Forbidden:
-                        await interaction.followup.send("⚠️ Não tenho permissão para criar canais.", ephemeral=True)
-                        logger.warning(f"Sem permissão para criar canal de farm para {self.user.display_name}.")
+                        await interaction.followup.send("⚠️ Não tenho permissão para criar canais. Verifique minhas permissões.", ephemeral=True)
+                        logger.warning(f"Sem permissão para criar canal de farm para {self.user.display_name} (ID: {self.user.id}).")
                     except Exception as e:
                         await interaction.followup.send(f"❌ Erro ao criar canal: {e}", ephemeral=True)
-                        logger.error(f"Erro ao criar canal de farm para {self.user.display_name}: {e}", exc_info=True)
+                        logger.error(f"Erro ao criar canal de farm para {self.user.display_name} (ID: {self.user.id}): {e}", exc_info=True)
 
                     if canal and isinstance(canal, discord.TextChannel) and canal.category_id == CATEGORIA_FARM_ID:
                         bot = interaction.client
