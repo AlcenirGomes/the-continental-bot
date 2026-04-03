@@ -16,3 +16,4 @@ __pycache__/
 *.db
 prints.json # Adicionado para não versionar o arquivo JSON de prints
 imagens/ # Adicionado para não versionar a pasta de imagens
+farm_cooldowns.json # Adicionado para não versionar o arquivo JSON de cooldowns

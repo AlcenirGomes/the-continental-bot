@@ -7,7 +7,7 @@ import os # Importar os para ENVIRONMENT
 # imports locais
 from config import (
     TOKEN, CATEGORIA_FARM_ID, ID_MARCADOR, ID_MARCADOR_REGISTRO, ID_MARCADOR_PEDIDO,
-    CANAL_REGISTRO_ID, CANAL_LOG_ID, CANAL_PEDIDO_ID, PREFIX, ENVIRONMENT # Adicionado PREFIX e ENVIRONMENT
+    CANAL_REGISTRO_ID, CANAL_LOG_ID, CANAL_PEDIDO_ID, PREFIX, ENVIRONMENT, CARGOS_AUTORIZADOS # Adicionado CARGOS_AUTORIZADOS
 )
 from views.farmview import FarmView
 from views.registro import RegistroView
@@ -15,6 +15,7 @@ from views.pedido import PedidoView
 from utils.utils_prints import limpar_prints_expirados
 from utils.utils_embeds import criar_embed
 from utils.utils_discord import limpar_e_enviar_view
+from utils.utils_cooldowns import carregar_cooldowns, salvar_cooldowns # NOVO: Para persistência do cooldown
 
 # --- Configuração de Logging ---
 # Configura o logging para exibir mensagens no console e em um arquivo
@@ -38,12 +39,16 @@ intents.guilds = True          # Necessário para acessar informações de servi
 # Se você usa eventos como on_member_join, on_member_remove, etc., pode precisar de intents.presences ou outras.
 
 # --- Inicialização do Bot ---
-bot = commands.Bot(command_prefix=commands.when_mentioned_or(PREFIX), intents=intents) # CORRIGIDO: Prefixo e intents
+bot = commands.Bot(command_prefix=commands.when_mentioned_or(PREFIX), intents=intents)
 
 # Sets para suprimir recriação de botões durante operações
 bot._suppress_recreate_farm     = set()
 bot._suppress_recreate_registro = set()
 bot._suppress_recreate_pedido   = set()
+
+# NOVO: Carrega os cooldowns na inicialização do bot
+bot.user_farm_cooldowns = carregar_cooldowns()
+logger.info("✅ Cooldowns de farm carregados.")
 
 @tasks.loop(hours=24)
 async def task_limpar_prints():
@@ -130,7 +135,7 @@ async def on_ready():
                         canal.id
                     )
 
-        # CORRIGIDO: Sincronização de comandos de árvore condicional
+        # Sincronização de comandos de árvore condicional
         if ENVIRONMENT == "development":
             try:
                 synced = await bot.tree.sync()
@@ -319,22 +324,20 @@ async def on_member_remove(member):
 
 # --- Função Principal para Iniciar o Bot ---
 async def main():
+    """Função principal para inicializar o bot."""
     async with bot:
-        # CORRIGIDO: Carregamento de cogs dinâmico
+        # Carregamento de cogs dinâmico
         await load_cogs()
         await bot.start(TOKEN)
 
-# CORRIGIDO: Função para carregar cogs dinamicamente
+# Função para carregar cogs dinamicamente
 async def load_cogs():
     """Carrega todos os cogs da pasta 'cogs'."""
     for filename in os.listdir('./cogs'):
         if filename.endswith('.py'):
             try:
-                # CORRIGIDO: O cog 'registrar_cog' deve ser 'registro_cog'
                 cog_name = filename[:-3]
-                if cog_name == "registrar_cog": # Se você tem um arquivo chamado registrar_cog.py
-                    cog_name = "registro_cog" # Mude para o nome correto do módulo
-
+                # CORRIGIDO: Removida a linha condicional, pois o arquivo já é 'registro_cog.py'
                 await bot.load_extension(f'cogs.{cog_name}')
                 logger.info(f'Cog {cog_name} carregado com sucesso.')
             except Exception as e:

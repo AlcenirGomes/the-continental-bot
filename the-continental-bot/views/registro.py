@@ -3,7 +3,7 @@ from discord.ui import View, Button
 import traceback
 import logging
 
-from ..config import CATEGORIA_FARM_ID, CARGOS_AUTORIZADOS, ID_MARCADOR_REGISTRO, CANAL_REGISTRO_ID, CANAL_APROVACAO_ID, ID_MARCADOR # Importação relativa corrigida
+from ..config import CATEGORIA_FARM_ID, CARGOS_AUTORIZADOS, ID_MARCADOR_REGISTRO, CANAL_REGISTRO_ID, CANAL_APROVACAO_ID, ID_MARCADOR
 from ..utils.utils_embeds import criar_embed
 from ..utils.utils_discord import limpar_e_enviar_view
 # from .farmview import FarmView # FarmView é importada dentro de finalizar_registro para evitar importação circular
@@ -62,8 +62,8 @@ class AvaliacaoRegistroView(View):
         self.passaporte = passaporte
 
     async def verificar_permissao(self, interaction: discord.Interaction) -> bool:
-        cargos = {r.name.lower() for r in interaction.user.roles} # CORRIGIDO: Usa set para comparação
-        if not any(cargo in cargos for cargo in CARGOS_AUTORIZADOS): # CORRIGIDO: Compara com CARGOS_AUTORIZADOS
+        cargos_usuario = {r.name.lower() for r in interaction.user.roles} # CORRIGIDO: Usa set para comparação
+        if not (cargos_usuario & set(CARGOS_AUTORIZADOS)): # CORRIGIDO: Compara com CARGOS_AUTORIZADOS
             await interaction.response.send_message(
                 "❌ Você não tem permissão para aprovar/reprovar registros.", ephemeral=True
             )

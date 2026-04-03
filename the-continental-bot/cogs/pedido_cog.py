@@ -10,7 +10,6 @@ from ..config import CANAL_PEDIDO_ID, ID_MARCADOR_PEDIDO, CARGOS_AUTORIZADOS
 
 logger = logging.getLogger(__name__)
 
-# Mover funções auxiliares e constantes para cá ou para um novo utils/utils_pedido.py
 PRECOS = {
     "M16 (Fuzil)": 180000.00,
     "IA2": 140000.00,
@@ -44,7 +43,6 @@ async def processar_pedido_logic(interaction: discord.Interaction, cliente: str,
         async for msg in canal.history(limit=100):
             if msg.pinned:
                 continue
-            # CORRIGIDO: Verifica se a mensagem tem embeds e se o título começa com os marcadores
             if not msg.embeds or not (msg.embeds[0].title.startswith("📦") or msg.embeds[0].title.startswith("🤝")):
                 try:
                     await msg.delete()
@@ -72,8 +70,9 @@ async def processar_pedido_logic(interaction: discord.Interaction, cliente: str,
                 campos_validos[item] = (qtd, subtotal, preco_unitario)
                 total += subtotal
             except ValueError:
+                # CORRIGIDO: Mensagem de erro mais específica
                 await interaction.followup.send(
-                    f"❌ Quantidade inválida para {item}. Por favor, insira um número inteiro.", ephemeral=True
+                    f"❌ Quantidade inválida para **{item}**. Por favor, insira um número inteiro.", ephemeral=True
                 )
                 logger.warning(f"Quantidade inválida para '{item}' no pedido de {user.display_name}.")
                 return
@@ -129,10 +128,9 @@ async def processar_pedido_logic(interaction: discord.Interaction, cliente: str,
             description="Clique no botão abaixo para abrir novamente o formulário.",
             color=0x272727,
         )
-        # CORRIGIDO: Passa o bot.user corretamente
         await limpar_e_enviar_view(
             canal,
-            bot.user, # Passa o bot.user
+            bot.user,
             ID_MARCADOR_PEDIDO,
             embed_recriar_pedido,
             PedidoView(bot),

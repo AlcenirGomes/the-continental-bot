@@ -21,8 +21,8 @@ class AvaliacaoView(View):
         self.user = user
 
     async def verificar_permissao(self, interaction: discord.Interaction) -> bool:
-        cargos = {r.name.lower() for r in interaction.user.roles} # CORRIGIDO: Usa set para comparação
-        if not any(cargo in cargos for cargo in CARGOS_AUTORIZADOS): # CORRIGIDO: Compara com CARGOS_AUTORIZADOS
+        cargos_usuario = {r.name.lower() for r in interaction.user.roles} # CORRIGIDO: Usa set para comparação
+        if not (cargos_usuario & set(CARGOS_AUTORIZADOS)): # CORRIGIDO: Compara com CARGOS_AUTORIZADOS
             await interaction.response.send_message(
                 "❌ Você não tem permissão para aprovar ou recusar coletas.",
                 ephemeral=True

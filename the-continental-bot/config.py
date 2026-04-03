@@ -20,7 +20,7 @@ CANAL_LOG_ID       = 1410706622317330640 # Verifique se CANAL_APROVACAO_ID e CAN
 CARGOS_AUTORIZADOS = ["administrador", "01", "02", "03", "gerente"]
 
 # --- Variáveis de Ambiente ---
-TOKEN = os.getenv("DISCORD_BOT_TOKEN") # CORRIGIDO: Nome da variável para corresponder ao .env
+TOKEN = os.getenv("DISCORD_BOT_TOKEN")
 if TOKEN is None:
     raise ValueError("O token do Discord não foi encontrado nas variáveis de ambiente. Verifique seu arquivo .env.")
 

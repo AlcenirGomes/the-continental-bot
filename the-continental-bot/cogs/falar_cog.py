@@ -4,11 +4,11 @@ from discord import app_commands
 import logging
 
 from ..utils.utils_embeds import criar_embed
-from ..config import CARGOS_AUTORIZADOS # Importa CARGOS_AUTORIZADOS do config
+from ..config import CARGOS_AUTORIZADOS # CORRIGIDO: Importa CARGOS_AUTORIZADOS do config
 
 logger = logging.getLogger(__name__)
 
-# AUTHORIZED_ROLES foi movido para config.py e importado.
+# REMOVIDO: AUTHORIZED_ROLES foi movido para config.py
 
 class EmbedModal(discord.ui.Modal, title="Criar Embed"):
     titulo = discord.ui.TextInput(label="Título", placeholder="Digite o título do embed", required=True)
@@ -95,10 +95,10 @@ class FalarCog(commands.Cog):
                     usuario: str = None):
 
         membro = interaction.user
-        # CORRIGIDO: Usa CARGOS_AUTORIZADOS do config.py
         cargos_usuario = {role.name.lower() for role in membro.roles}
 
-        if not (cargos_usuario & set(CARGOS_AUTORIZADOS)): # CORRIGIDO: Comparação com set(CARGOS_AUTORIZADOS)
+        # CORRIGIDO: Usa CARGOS_AUTORIZADOS do config.py
+        if not (cargos_usuario & set(CARGOS_AUTORIZADOS)):
             await interaction.response.send_message("❌ Você não tem permissão para usar este comando.", ephemeral=True)
             logger.warning(f"Comando /falar: Tentativa de uso sem permissão por {interaction.user.display_name}.")
             return

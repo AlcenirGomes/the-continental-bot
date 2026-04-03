@@ -114,7 +114,7 @@ class EntregaModal(discord.ui.Modal, title="Previsão de Entrega"):
     async def on_submit(self, interaction: discord.Interaction):
         # Importar a lógica do cog aqui para evitar importação circular
         from ..cogs.pedido_cog import processar_pedido_logic
-        try: # Adicionado try-except para a lógica de processamento
+        try:
             await processar_pedido_logic(
                 interaction, self.cliente, self.dados, self.bot, self.user, self.entrega.value, self.parceria
             )
@@ -135,8 +135,8 @@ class PedidoView(discord.ui.View):
         custom_id="botao_pedido"
     )
     async def open_modal(self, interaction: discord.Interaction, button: discord.ui.Button):
-        cargos = {role.name.lower() for role in interaction.user.roles} # CORRIGIDO: Usa set para comparação
-        if not any(cargo in cargos for cargo in CARGOS_AUTORIZADOS): # CORRIGIDO: Compara com CARGOS_AUTORIZADOS
+        cargos_usuario = {role.name.lower() for role in interaction.user.roles} # CORRIGIDO: Usa set para comparação
+        if not (cargos_usuario & set(CARGOS_AUTORIZADOS)): # CORRIGIDO: Compara com CARGOS_AUTORIZADOS
             await interaction.response.send_message(
                 "❌ Você não tem permissão para fazer um pedido.", ephemeral=True
             )

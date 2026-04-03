@@ -2,21 +2,20 @@ import discord
 import traceback
 import logging
 from discord.ui import Modal, TextInput, View, Button
-from datetime import datetime, timedelta # Importado timedelta para cooldown
+from datetime import datetime, timedelta
 import asyncio
+import json # NOVO: Para persistência do cooldown
 
-from ..config import CARGO_ID, ID_MARCADOR, CATEGORIA_FARM_ID # Importação relativa corrigida
+from ..config import CARGO_ID, ID_MARCADOR, CATEGORIA_FARM_ID
 from ..utils.utils_prints import registrar_print
 from ..utils.utils_embeds import criar_embed
 from ..utils.utils_discord import limpar_e_enviar_view
-# from .coleta import AvaliacaoView # AvaliacaoView é importada dentro de on_submit para evitar importação circular
+from ..utils.utils_cooldowns import salvar_cooldowns # NOVO: Para salvar o cooldown
 
 logger = logging.getLogger(__name__)
 
-# --- Cooldown de Farm (sem DB, usando um dicionário em memória) ---
-# ATENÇÃO: Este dicionário será resetado toda vez que o bot for reiniciado.
-# Para persistência, um banco de dados seria necessário.
-user_farm_cooldowns = {}
+# --- Cooldown de Farm (com persistência em JSON) ---
+# user_farm_cooldowns agora é acessado via bot.user_farm_cooldowns
 FARM_COOLDOWN_SECONDS = 3600 # 1 hora de cooldown
 
 class FarmModalParte1(Modal, title="Coleta de Materiais - Parte 1"):
@@ -35,12 +34,15 @@ class FarmModalParte1(Modal, title="Coleta de Materiais - Parte 1"):
         self.add_item(self.slide)
 
     async def on_submit(self, interaction: discord.Interaction):
-        user_id = interaction.user.id
+        user_id = str(interaction.user.id) # Convertido para string para chaves JSON
         now = datetime.now()
+
+        # Acessa o dicionário de cooldowns do bot
+        user_farm_cooldowns = interaction.client.user_farm_cooldowns
 
         # Verifica o cooldown
         if user_id in user_farm_cooldowns:
-            last_farm_time = user_farm_cooldowns[user_id]
+            last_farm_time = datetime.fromisoformat(user_farm_cooldowns[user_id])
             time_since_last_farm = now - last_farm_time
             if time_since_last_farm.total_seconds() < FARM_COOLDOWN_SECONDS:
                 remaining_time = timedelta(seconds=FARM_COOLDOWN_SECONDS) - time_since_last_farm
@@ -81,14 +83,22 @@ class FarmModalParte2(Modal, title="Coleta de Materiais - Parte 2"):
         self.add_item(self.titanio)
 
     async def on_submit(self, interaction: discord.Interaction):
-        user_id = interaction.user.id
+        user_id = str(interaction.user.id) # Convertido para string para chaves JSON
         try:
+            valores = {}
+            # CORRIGIDO: Mensagem de erro mais específica para input numérico
+            for k, v in self.valores_parte1.items():
+                try:
+                    valores[k] = int(v)
+                except ValueError:
+                    await interaction.response.send_message(f"❌ Valor inválido para '{k}'. Por favor, insira um número inteiro.", ephemeral=True)
+                    logger.warning(f"Valores não inteiros fornecidos por {interaction.user.display_name} no FarmModalParte2. Campo: {k}.")
+                    return
             try:
-                valores = {k: int(v) for k, v in self.valores_parte1.items()}
                 valores["Titânio"] = int(self.titanio.value.strip())
             except ValueError:
-                await interaction.response.send_message("❌ Todos os valores devem ser números inteiros.", ephemeral=True)
-                logger.warning(f"Valores não inteiros fornecidos por {interaction.user.display_name} no FarmModalParte2.")
+                await interaction.response.send_message("❌ Valor inválido para 'Titânio'. Por favor, insira um número inteiro.", ephemeral=True)
+                logger.warning(f"Valores não inteiros fornecidos por {interaction.user.display_name} no FarmModalParte2. Campo: Titânio.")
                 return
 
             await interaction.response.send_message("✅ Valores recebidos! Agora envie um print (imagem).", ephemeral=True)
@@ -173,8 +183,10 @@ class FarmModalParte2(Modal, title="Coleta de Materiais - Parte 2"):
 
             await interaction.channel.send("✅ Dados enviados com sucesso!", delete_after=10)
 
-            # Define o cooldown após o envio bem-sucedido
-            user_farm_cooldowns[user_id] = datetime.now()
+            # Define o cooldown após o envio bem-sucedido e salva
+            interaction.client.user_farm_cooldowns[user_id] = datetime.now().isoformat()
+            salvar_cooldowns(interaction.client.user_farm_cooldowns)
+            logger.info(f"Cooldown de farm registrado e salvo para {interaction.user.display_name}.")
 
         except Exception:
             logger.error("Erro ao processar Parte 2 no FarmModalParte2.", exc_info=True)

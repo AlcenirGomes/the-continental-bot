@@ -11,15 +11,15 @@ from dotenv import load_dotenv
 load_dotenv()
 logger = logging.getLogger(__name__)
 
-# CORRIGIDO: Adicionado verificação para as variáveis de ambiente da Cloudinary
 CLOUDINARY_CLOUD_NAME = os.getenv("CLOUDINARY_CLOUD_NAME")
 CLOUDINARY_API_KEY    = os.getenv("CLOUDINARY_API_KEY")
 CLOUDINARY_API_SECRET = os.getenv("CLOUDINARY_API_SECRET")
 
+# CORRIGIDO: Condiciona a configuração da Cloudinary à presença das credenciais
 if not all([CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY, CLOUDINARY_API_SECRET]):
     logger.error("❌ Variáveis de ambiente da Cloudinary não configuradas. O upload de imagens pode falhar.")
     # Você pode optar por levantar um erro aqui para impedir o bot de iniciar se as chaves forem críticas
-    # raise ValueError("Credenciais da Cloudinary ausentes. Verifique seu arquivo .env.")
+    # raise ValueError("Credenciais da Cloudinary ausentes.")
 else:
     cloudinary.config(
         cloud_name=CLOUDINARY_CLOUD_NAME,

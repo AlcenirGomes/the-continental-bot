@@ -17,7 +17,8 @@ class FarmCog(commands.Cog):
     @app_commands.command(name="farm", description="Força o envio do botão de farm no canal atual")
     async def farm(self, interaction: discord.Interaction):
         canal = interaction.channel
-        if not isinstance(canal, discord.TextChannel) or canal.category_id != CATEGORIA_FARM_ID: # CORRIGIDO: Verifica se é TextChannel
+        # CORRIGIDO: Verifica se é TextChannel antes de acessar .category_id
+        if not isinstance(canal, discord.TextChannel) or canal.category_id != CATEGORIA_FARM_ID:
             await interaction.response.send_message("❌ Este comando só pode ser usado em canais de farm.", ephemeral=True)
             logger.warning(f"Comando /farm: Tentativa de uso em canal não-farm por {interaction.user.display_name}.")
             return
@@ -29,7 +30,7 @@ class FarmCog(commands.Cog):
         )
         view = FarmView()
 
-        try: # Adicionado try-except para a operação de limpeza e envio
+        try:
             await limpar_e_enviar_view(
                 canal,
                 self.bot.user,
@@ -47,7 +48,6 @@ class FarmCog(commands.Cog):
         except Exception as e:
             logger.error(f"Comando /farm: Erro ao recriar botão de farm em {canal.name} (ID: {canal.id}): {e}", exc_info=True)
             await interaction.response.send_message("❌ Ocorreu um erro ao recriar o botão de farm.", ephemeral=True)
-
 
 async def setup(bot):
     await bot.add_cog(FarmCog(bot))
