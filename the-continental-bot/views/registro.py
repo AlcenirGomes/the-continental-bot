@@ -1,10 +1,14 @@
 import discord
 from discord.ui import View, Button
 import traceback
+import logging
 
-from config import CATEGORIA_FARM_ID, CARGOS_AUTORIZADOS, ID_MARCADOR_REGISTRO, CANAL_REGISTRO_ID, CANAL_APROVACAO_ID, ID_MARCADOR
-from farmview import enviar_botao_se_necessario # Importar aqui
-from utils_embeds import criar_embed
+from ..config import CATEGORIA_FARM_ID, CARGOS_AUTORIZADOS, ID_MARCADOR_REGISTRO, CANAL_REGISTRO_ID, CANAL_APROVACAO_ID, ID_MARCADOR # Importação relativa corrigida
+from ..utils.utils_embeds import criar_embed # Importação relativa corrigida
+from ..utils.utils_discord import limpar_e_enviar_view # Importação da nova função utilitária
+# from .farmview import FarmView # FarmView é importada dentro de finalizar_registro para evitar importação circular
+
+logger = logging.getLogger(__name__)
 
 class RegistroModal(discord.ui.Modal, title="Registro de Membro"):
     def __init__(self):
@@ -35,11 +39,13 @@ class RegistroModal(discord.ui.Modal, title="Registro de Membro"):
             if canal_aprovacao:
                 await canal_aprovacao.send(embed=embed, view=view)
                 await interaction.response.send_message("✅ Seu registro foi enviado para aprovação!", ephemeral=True)
+                logger.info(f"Registro de {interaction.user.display_name} enviado para aprovação.")
             else:
                 await interaction.response.send_message("❌ Canal de aprovação não encontrado.", ephemeral=True)
+                logger.warning(f"Canal de aprovação (ID: {CANAL_APROVACAO_ID}) não encontrado ao processar registro de {interaction.user.display_name}.")
 
         except Exception:
-            traceback.print_exc()
+            logger.error("Erro ao enviar registro no RegistroModal.", exc_info=True)
             try:
                 await interaction.response.send_message("❌ Erro ao enviar registro.", ephemeral=True)
             except Exception:
@@ -58,6 +64,7 @@ class AvaliacaoRegistroView(View):
             await interaction.response.send_message(
                 "❌ Você não tem permissão para aprovar/reprovar registros.", ephemeral=True
             )
+            logger.warning(f"Tentativa de aprovação/reprovação de registro sem permissão por {interaction.user.display_name}.")
             return False
         return True
 
@@ -92,19 +99,25 @@ class AvaliacaoRegistroView(View):
                 try:
                     novo_nick = f"『 M 』{self.nome} | {self.passaporte}"
                     await self.user.edit(nick=novo_nick)
+                    logger.info(f"Nick de {self.user.display_name} alterado para {novo_nick}.")
                 except discord.Forbidden:
                     await interaction.followup.send("⚠️ Não consegui mudar o nick do usuário.", ephemeral=True)
+                    logger.warning(f"Sem permissão para mudar nick de {self.user.display_name}.")
                 except Exception as e:
                     await interaction.followup.send(f"❌ Erro ao mudar nick: {e}", ephemeral=True)
+                    logger.error(f"Erro ao mudar nick de {self.user.display_name}: {e}", exc_info=True)
 
                 cargo_membro = discord.utils.get(interaction.guild.roles, name="Membro")
                 if cargo_membro:
                     try:
                         await self.user.add_roles(cargo_membro)
+                        logger.info(f"Cargo 'Membro' atribuído a {self.user.display_name}.")
                     except discord.Forbidden:
                         await interaction.followup.send("⚠️ Não consegui atribuir o cargo de Membro.", ephemeral=True)
+                        logger.warning(f"Sem permissão para atribuir cargo 'Membro' a {self.user.display_name}.")
                     except Exception as e:
                         await interaction.followup.send(f"❌ Erro ao atribuir cargo: {e}", ephemeral=True)
+                        logger.error(f"Erro ao atribuir cargo 'Membro' a {self.user.display_name}: {e}", exc_info=True)
 
                 categoria = interaction.guild.get_channel(CATEGORIA_FARM_ID)
                 canal = None
@@ -126,22 +139,34 @@ class AvaliacaoRegistroView(View):
                             topic=f"Canal de farm do {self.user.name} | ID: {self.user.id}",
                             overwrites=overwrites
                         )
+                        logger.info(f"Canal de farm '{nome_canal}' criado para {self.user.display_name}.")
                     except discord.Forbidden:
                         await interaction.followup.send("⚠️ Não tenho permissão para criar canais.", ephemeral=True)
+                        logger.warning(f"Sem permissão para criar canal de farm para {self.user.display_name}.")
                     except Exception as e:
                         await interaction.followup.send(f"❌ Erro ao criar canal: {e}", ephemeral=True)
+                        logger.error(f"Erro ao criar canal de farm para {self.user.display_name}: {e}", exc_info=True)
 
                     if canal and isinstance(canal, discord.TextChannel) and canal.category_id == CATEGORIA_FARM_ID:
                         bot = interaction.client
+                        from .farmview import FarmView # Importar FarmView aqui para evitar importação circular
                         if not hasattr(bot, "_suppress_recreate_farm"):
                             bot._suppress_recreate_farm = set()
-                        bot._suppress_recreate_farm.add(canal.id)
-                        try:
-                            await enviar_botao_se_necessario(canal, bot.user)
-                        except Exception as e:
-                            await interaction.followup.send(f"❌ Erro ao enviar botão de farm: {e}", ephemeral=True)
-                        finally:
-                            bot._suppress_recreate_farm.discard(canal.id)
+
+                        embed_farm = criar_embed(
+                            title="Entrega do Farm Semanal",
+                            description="Clique no botão abaixo para entregar seu farm.",
+                            color=0x272727
+                        )
+                        await limpar_e_enviar_view(
+                            canal,
+                            bot.user,
+                            ID_MARCADOR,
+                            embed_farm,
+                            FarmView(),
+                            bot._suppress_recreate_farm,
+                            canal.id
+                        )
 
             else:
                 status_texto = "❌ Reprovado"
@@ -152,8 +177,9 @@ class AvaliacaoRegistroView(View):
                 embed.add_field(name="📌 Status", value=status_texto, inline=False)
                 if mensagem:
                     await mensagem.edit(embed=embed, view=None)
+                logger.info(f"Registro de {self.user.display_name} {status_texto.lower()} por {interaction.user.display_name}.")
             except Exception:
-                traceback.print_exc()
+                logger.error("Erro ao editar mensagem de avaliação de registro.", exc_info=True)
 
             try:
                 await interaction.followup.send(f"✅ Registro {status_texto.lower()}!", ephemeral=True)
@@ -161,7 +187,7 @@ class AvaliacaoRegistroView(View):
                 pass
 
         except Exception:
-            traceback.print_exc()
+            logger.error("Erro ao finalizar registro na AvaliacaoRegistroView.", exc_info=True)
             try:
                 await interaction.followup.send("❌ Erro ao finalizar registro.", ephemeral=True)
             except Exception:
@@ -180,47 +206,8 @@ class RegistroView(View):
         try:
             await interaction.response.send_modal(RegistroModal())
         except Exception as e:
-            traceback.print_exc()
+            logger.error(f"Erro ao abrir modal de registro: {e}", exc_info=True)
             try:
                 await interaction.response.send_message(f"❌ Erro ao abrir registro: {e}", ephemeral=True)
             except Exception:
                 pass
-
-async def enviar_botao_registro(bot):
-    canal = bot.get_channel(CANAL_REGISTRO_ID)
-    if canal:
-        if not hasattr(bot, "_suppress_recreate_registro"):
-            bot._suppress_recreate_registro = set()
-        bot._suppress_recreate_registro.add(canal.id)
-        try:
-            async for msg in canal.history(limit=50):
-                if msg.author == bot.user and msg.components:
-                    try:
-                        await msg.delete()
-                    except Exception:
-                        pass
-
-            embed = criar_embed(
-                title="📋 Registro de Novos Membros",
-                description="Clique no botão abaixo para registrar-se no cartel.",
-                color=0x272727,
-            )
-            await canal.send(content=ID_MARCADOR_REGISTRO, embed=embed, view=RegistroView()) # Usar ID_MARCADOR_REGISTRO
-            print("✅ Botão de registro enviado no canal de registro.")
-        finally:
-            try:
-                bot._suppress_recreate_registro.discard(canal.id)
-            except Exception:
-                pass
-
-async def verificar_registro_apagado(message, bot):
-    if message.author == bot.user and message.components:
-        if message.channel.id in getattr(bot, "_suppress_recreate_registro", set()):
-            return
-
-    if message.author == bot.user and message.components and (message.content or "").strip() == ID_MARCADOR_REGISTRO: # Usar ID_MARCADOR_REGISTRO
-        if message.channel.id != CANAL_REGISTRO_ID:
-            return
-        canal = message.channel
-        print("⚠️ Mensagem de registro apagada, recriando botão...")
-        await enviar_botao_registro(bot)

@@ -18,17 +18,17 @@ cloudinary.config(
     secure=True,
 )
 
-
 async def baixar_em_memoria(url):
     try:
         async with aiohttp.ClientSession() as session:
             async with session.get(url) as resp:
                 if resp.status == 200:
                     return await resp.read()
+                logger.warning(f"Falha ao baixar imagem da URL {url}. Status: {resp.status}")
                 return None
-    except Exception:
+    except Exception as e:
+        logger.error(f"Erro ao baixar imagem da URL {url}: {e}", exc_info=True)
         return None
-
 
 async def fazer_upload_cloudinary(dados, nome_arquivo, pasta="the_continental_prints"):
     try:
@@ -42,13 +42,19 @@ async def fazer_upload_cloudinary(dados, nome_arquivo, pasta="the_continental_pr
             overwrite=False,
         )
         resultado = await loop.run_in_executor(None, upload_func)
-        return resultado.get("secure_url")
-    except Exception:
+        if resultado and resultado.get("secure_url"):
+            logger.info(f"Upload para Cloudinary bem-sucedido: {resultado.get('secure_url')}")
+            return resultado.get("secure_url")
+        else:
+            logger.warning(f"Upload para Cloudinary falhou ou não retornou URL segura para {nome_arquivo}.")
+            return None
+    except Exception as e:
+        logger.error(f"Erro ao fazer upload para Cloudinary para {nome_arquivo}: {e}", exc_info=True)
         return None
-
 
 async def salvar_print_cloudinary(cdn_url, nome_arquivo):
     dados = await baixar_em_memoria(cdn_url)
     if not dados:
+        logger.warning(f"Não foi possível baixar dados para salvar print de {cdn_url}.")
         return None
     return await fazer_upload_cloudinary(dados, nome_arquivo)

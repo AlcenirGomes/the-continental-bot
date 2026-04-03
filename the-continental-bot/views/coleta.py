@@ -1,13 +1,17 @@
 import discord
 from discord.ui import Button, View
+import logging
 
-from config import (
+from ..config import ( # Importação relativa corrigida
     CARGOS_AUTORIZADOS,
     CATEGORIA_FARM_ID,
     ID_MARCADOR,
 )
-from farmview import FarmView
-from utils_embeds import criar_embed
+from ..utils.utils_embeds import criar_embed # Importação relativa corrigida
+from ..utils.utils_discord import limpar_e_enviar_view # Importação da nova função utilitária
+# from .farmview import FarmView # FarmView é importada dentro de finalizar_coleta para evitar importação circular
+
+logger = logging.getLogger(__name__)
 
 class AvaliacaoView(View):
     def __init__(self, mensagem_embed, embed_original, user):
@@ -23,6 +27,7 @@ class AvaliacaoView(View):
                 "❌ Você não tem permissão para aprovar ou recusar coletas.",
                 ephemeral=True
             )
+            logger.warning(f"Tentativa de aprovação/reprovação de coleta sem permissão por {interaction.user.display_name}.")
             return False
         return True
 
@@ -43,8 +48,6 @@ class AvaliacaoView(View):
         if not hasattr(bot, "_suppress_recreate_farm"):
             bot._suppress_recreate_farm = set()
 
-        bot._suppress_recreate_farm.add(interaction.channel.id)
-
         try:
             titulo = "📦 Coleta Aprovada" if aprovado else "📦 Coleta Reprovada"
             descricao = (
@@ -63,36 +66,33 @@ class AvaliacaoView(View):
             try:
                 await self.mensagem_embed.edit(view=None)
             except Exception:
+                logger.warning("Não foi possível editar a mensagem original da coleta para remover a view.")
                 pass
 
             await interaction.channel.send(embed=embed_status)
-
-            async for msg in interaction.channel.history(limit=50):
-                if msg.author == bot.user and msg.components:
-                    try:
-                        await msg.delete()
-                    except Exception:
-                        pass
+            logger.info(f"Coleta de {self.user.display_name} {titulo.lower().replace('📦 ', '')} por {interaction.user.display_name}.")
 
             if interaction.channel.category_id == CATEGORIA_FARM_ID:
-                await interaction.channel.send(
-                    content=ID_MARCADOR,
-                    embed=criar_embed(
-                        title="Entrega do Farm Semanal",
-                        description="Clique no botão abaixo para entregar seu farm.",
-                        color=0x272727,
-                    ),
-                    view=FarmView()
+                from .farmview import FarmView # Importar FarmView aqui para evitar importação circular
+                embed_farm = criar_embed(
+                    title="Entrega do Farm Semanal",
+                    description="Clique no botão abaixo para entregar seu farm.",
+                    color=0x272727,
+                )
+                await limpar_e_enviar_view(
+                    interaction.channel,
+                    bot.user,
+                    ID_MARCADOR,
+                    embed_farm,
+                    FarmView(),
+                    bot._suppress_recreate_farm,
+                    interaction.channel.id
                 )
 
             await interaction.response.send_message("✅ Avaliação registrada.", ephemeral=True)
 
         except Exception as e:
+            logger.error(f"Erro ao finalizar avaliação de coleta: {e}", exc_info=True)
             await interaction.response.send_message(
                 f"❌ Erro ao finalizar avaliação: {str(e)}", ephemeral=True
             )
-        finally:
-            try:
-                bot._suppress_recreate_farm.discard(interaction.channel.id)
-            except Exception:
-                pass

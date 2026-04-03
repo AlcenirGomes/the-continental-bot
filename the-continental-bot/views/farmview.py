@@ -2,10 +2,14 @@ import discord
 import traceback
 import logging
 from discord.ui import Modal, TextInput, View, Button
-from config import CARGO_ID, ID_MARCADOR, CATEGORIA_FARM_ID
 from datetime import datetime
-from utils_prints import registrar_print
-from utils_embeds import criar_embed
+import asyncio
+
+from ..config import CARGO_ID, ID_MARCADOR, CATEGORIA_FARM_ID # Importação relativa corrigida
+from ..utils.utils_prints import registrar_print
+from ..utils.utils_embeds import criar_embed # Importação relativa corrigida
+from ..utils.utils_discord import limpar_e_enviar_view # Importação da nova função utilitária
+# from .coleta import AvaliacaoView # AvaliacaoView é importada dentro de on_submit para evitar importação circular
 
 logger = logging.getLogger(__name__)
 
@@ -13,7 +17,7 @@ class FarmModalParte1(Modal, title="Coleta de Materiais - Parte 1"):
     def __init__(self):
         super().__init__()
         self.cabo = TextInput(label="Cabo", required=True)
-        self.clip = TextInput(label="Clip", required=True)
+        self.clip = TextInput(label="Clipper", required=True) # Corrigido para "Clipper"
         self.culatra = TextInput(label="Culatra", required=True)
         self.ferrolho = TextInput(label="Ferrolho", required=True)
         self.slide = TextInput(label="Slide", required=True)
@@ -28,7 +32,7 @@ class FarmModalParte1(Modal, title="Coleta de Materiais - Parte 1"):
         try:
             valores_parte1 = {
                 "Cabo": self.cabo.value.strip(),
-                "Clip": self.clip.value.strip(),
+                "Clipper": self.clip.value.strip(), # Corrigido para "Clipper"
                 "Culatra": self.culatra.value.strip(),
                 "Ferrolho": self.ferrolho.value.strip(),
                 "Slide": self.slide.value.strip(),
@@ -40,8 +44,9 @@ class FarmModalParte1(Modal, title="Coleta de Materiais - Parte 1"):
                 view=view,
                 ephemeral=True
             )
+            logger.info(f"FarmModalParte1 submetido por {interaction.user.display_name}.")
         except Exception:
-            traceback.print_exc()
+            logger.error("Erro ao processar Parte 1 no FarmModalParte1.", exc_info=True)
             await interaction.response.send_message("❌ Erro ao processar Parte 1.", ephemeral=True)
 
 class FarmModalParte2(Modal, title="Coleta de Materiais - Parte 2"):
@@ -58,9 +63,11 @@ class FarmModalParte2(Modal, title="Coleta de Materiais - Parte 2"):
                 valores["Titânio"] = int(self.titanio.value.strip())
             except ValueError:
                 await interaction.response.send_message("❌ Todos os valores devem ser inteiros.", ephemeral=True)
+                logger.warning(f"Valores não inteiros fornecidos por {interaction.user.display_name} no FarmModalParte2.")
                 return
 
             await interaction.response.send_message("✅ Valores recebidos! Agora envie um print (imagem).", ephemeral=True)
+            logger.info(f"FarmModalParte2 submetido por {interaction.user.display_name}. Aguardando imagem.")
 
             def check_img(msg):
                 return msg.author == interaction.user and msg.channel == interaction.channel and msg.attachments
@@ -74,16 +81,23 @@ class FarmModalParte2(Modal, title="Coleta de Materiais - Parte 2"):
                 nome_arquivo = f"{interaction.user.id}_{data_str}.png"
 
                 registrar_print(user_id=interaction.user.id, cdn_url=imagem_url, nome_arquivo=nome_arquivo)
+                logger.info(f"Print registrado para {interaction.user.display_name}: {nome_arquivo}")
 
                 arquivo = await anexo.to_file()
 
                 try:
                     await img_msg.delete()
                 except Exception:
+                    logger.warning(f"Não foi possível deletar mensagem de imagem de {interaction.user.display_name}.")
                     pass
 
-            except Exception:
+            except asyncio.TimeoutError:
                 await interaction.followup.send("⏰ Tempo esgotado para enviar a imagem. Operação cancelada.", ephemeral=True)
+                logger.info(f"Tempo esgotado para imagem de {interaction.user.display_name}.")
+                return
+            except Exception as e:
+                logger.error(f"Erro ao receber imagem de {interaction.user.display_name}: {e}", exc_info=True)
+                await interaction.followup.send("❌ Erro ao receber a imagem. Operação cancelada.", ephemeral=True)
                 return
 
             apelido = interaction.user.nick or interaction.user.name
@@ -97,12 +111,16 @@ class FarmModalParte2(Modal, title="Coleta de Materiais - Parte 2"):
                 if interaction.channel.name != nome_canal_esperado:
                     try:
                         await interaction.channel.edit(name=nome_canal_esperado)
+                        logger.info(f"Canal {interaction.channel.name} renomeado para {nome_canal_esperado}.")
                     except discord.Forbidden:
                         await interaction.followup.send(
                             "⚠️ Não consegui renomear o canal. Permissões insuficientes.", ephemeral=True
                         )
+                        logger.warning(f"Sem permissão para renomear canal {interaction.channel.name}.")
+                    except Exception as e:
+                        logger.error(f"Erro ao renomear canal {interaction.channel.name}: {e}", exc_info=True)
+                        await interaction.followup.send(f"❌ Erro ao renomear canal: {e}", ephemeral=True)
 
-            cargo = interaction.guild.get_role(CARGO_ID)
             embed = criar_embed(
                 title="📦 Coleta de Materiais",
                 description=f"{interaction.user.mention} enviou os seguintes dados:",
@@ -112,7 +130,7 @@ class FarmModalParte2(Modal, title="Coleta de Materiais - Parte 2"):
             for item, valor in valores.items():
                 embed.add_field(name=item, value=str(valor), inline=True)
 
-            embed.set_image(url=f"attachment://{arquivo.filename}")
+            embed.set_image(url=imagem_url)
             embed.add_field(name="📷 Print Enviado", value=f"[Clique aqui para visualizar]({imagem_url})", inline=False)
 
             mensagem_embed = await interaction.channel.send(
@@ -121,13 +139,14 @@ class FarmModalParte2(Modal, title="Coleta de Materiais - Parte 2"):
                 file=arquivo
             )
 
-            from coleta import AvaliacaoView
+            from .coleta import AvaliacaoView # Importar AvaliacaoView aqui para evitar importação circular
             await mensagem_embed.edit(view=AvaliacaoView(mensagem_embed, embed, interaction.user))
+            logger.info(f"Coleta de {interaction.user.display_name} enviada para avaliação.")
 
             await interaction.channel.send("✅ Dados enviados com sucesso!", delete_after=10)
 
         except Exception:
-            traceback.print_exc()
+            logger.error("Erro ao processar Parte 2 no FarmModalParte2.", exc_info=True)
             await interaction.response.send_message("❌ Erro ao processar Parte 2.", ephemeral=True)
 
 class ContinuarView(discord.ui.View):
@@ -150,79 +169,18 @@ class FarmView(View):
     )
     async def open_modal(self, interaction: discord.Interaction, button: Button):
         try:
-            print(f"[DEBUG] open_modal chamado por {interaction.user} em {interaction.channel}")
+            logger.debug(f"open_modal chamado por {interaction.user} em {interaction.channel}")
             await interaction.response.send_modal(FarmModalParte1())
 
             try:
-                await interaction.message.delete()
+                if interaction.message:
+                    await interaction.message.delete()
             except Exception:
                 pass
 
         except Exception:
-            traceback.print_exc()
+            logger.error("Erro ao abrir o formulário de farm.", exc_info=True)
             try:
                 await interaction.response.send_message("❌ Erro ao abrir o formulário.", ephemeral=True)
             except Exception:
                 pass
-
-async def enviar_botao_se_necessario(canal: discord.TextChannel, bot_user):
-    if canal.category_id != CATEGORIA_FARM_ID:
-        return
-    try:
-        async for msg in canal.history(limit=50):
-            if (
-                msg.author == bot_user
-                and msg.components
-                and (msg.content or "").strip() == ID_MARCADOR
-            ):
-                print(f"⚠️ Botão já existe no canal {canal.name}, não vou duplicar.")
-                return
-
-        async for msg in canal.history(limit=50):
-            if msg.author == bot_user and msg.components:
-                try:
-                    await msg.delete()
-                except Exception:
-                    pass
-
-        embed = criar_embed(
-            title="Entrega do Farm Semanal",
-            description="Clique no botão abaixo para entregar seu farm.",
-            color=0x272727
-        )
-        await canal.send(content=ID_MARCADOR, embed=embed, view=FarmView())
-        print(f"✅ Botão de farm enviado automaticamente no canal {canal.name} (ID: {canal.id})")
-
-    except discord.Forbidden:
-        print(f"⚠️ Sem permissão para enviar mensagem em: {canal.name}")
-    except Exception as e:
-        print(f"❌ Erro ao enviar botão automático no canal {canal.name}: {e}")
-
-async def enviar_botao_farm(canal: discord.TextChannel):
-    try:
-        async for msg in canal.history(limit=50):
-            if (
-                msg.author == canal.guild.me
-                and msg.components
-                and (msg.content or "").strip() == ID_MARCADOR
-            ):
-                print(f"⚠️ Botão já existe no canal {canal.name}, não vou duplicar.")
-                return
-
-        async for msg in canal.history(limit=50):
-            if msg.author == canal.guild.me and msg.components:
-                try:
-                    await msg.delete()
-                except Exception:
-                    pass
-
-        embed = criar_embed(
-            title="Entrega do Farm Semanal",
-            description="Clique no botão abaixo para entregar seu farm.",
-            color=0x272727
-        )
-        await canal.send(content=ID_MARCADOR, embed=embed, view=FarmView())
-        print(f"✅ Botão de farm enviado via registro no canal {canal.name} (ID: {canal.id})")
-
-    except Exception as e:
-        print(f"❌ Erro ao enviar botão via registro no canal {canal.name}: {e}")

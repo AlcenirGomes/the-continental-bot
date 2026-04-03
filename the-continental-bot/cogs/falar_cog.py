@@ -1,7 +1,11 @@
 import discord
 from discord.ext import commands
 from discord import app_commands
-from utils_embeds import criar_embed
+import logging
+
+from ..utils.utils_embeds import criar_embed # Importação relativa corrigida
+
+logger = logging.getLogger(__name__)
 
 AUTHORIZED_ROLES = {"administrador", "01", "02", "03", "gerente"}
 
@@ -12,9 +16,10 @@ class EmbedModal(discord.ui.Modal, title="Criar Embed"):
     footer = discord.ui.TextInput(label="Texto do Footer", placeholder="Opcional", required=False)
     imagem_url = discord.ui.TextInput(label="URL da Imagem", placeholder="https://exemplo.com/imagem.png", required=False)
 
-    def __init__(self, original_interaction: discord.Interaction):
+    def __init__(self, original_interaction: discord.Interaction, bot_user: discord.User):
         super().__init__()
         self.original_interaction = original_interaction
+        self.bot_user = bot_user
 
     async def on_submit(self, interaction: discord.Interaction):
         color_value = self.cor.value.strip()
@@ -23,10 +28,11 @@ class EmbedModal(discord.ui.Modal, title="Criar Embed"):
             try:
                 color = (
                     discord.Color(int(color_value.strip("#"), 16))
-                    if color_value.startswith("#")")
+                    if color_value.startswith("#")
                     else discord.Color(int(color_value))
                 )
-            except Exception:
+            except Exception as e:
+                logger.warning(f"Cor inválida fornecida no EmbedModal: {color_value}. Usando cor padrão. Erro: {e}")
                 pass
 
         embed = criar_embed(
@@ -37,15 +43,17 @@ class EmbedModal(discord.ui.Modal, title="Criar Embed"):
             image_url=self.imagem_url.value.strip() if self.imagem_url.value else None
         )
 
-        async for msg in self.original_interaction.channel.history(limit=50):
-            if msg.author == interaction.client.user and msg.embeds:
-                try:
-                    await msg.delete()
-                except Exception:
-                    pass
+        try:
+            await self.original_interaction.channel.send(embed=embed)
+            await interaction.response.send_message("✅ Embed enviado com sucesso!", ephemeral=True)
+            logger.info(f"Embed enviado por {self.original_interaction.user.display_name} no canal {self.original_interaction.channel.name}.")
+        except discord.Forbidden:
+            logger.warning(f"Sem permissão para enviar embed no canal {self.original_interaction.channel.name} (ID: {self.original_interaction.channel.id}).")
+            await interaction.response.send_message("❌ Não tenho permissão para enviar mensagens neste canal.", ephemeral=True)
+        except Exception as e:
+            logger.error(f"Erro ao enviar embed no canal {self.original_interaction.channel.name}: {e}", exc_info=True)
+            await interaction.response.send_message(f"❌ Erro ao enviar embed: {e}", ephemeral=True)
 
-        await interaction.response.send_message("✅ Embed enviado com sucesso!", ephemeral=True)
-        await self.original_interaction.followup.send(embed=embed)
 
 class DMModal(discord.ui.Modal, title="Enviar DM"):
     mensagem = discord.ui.TextInput(label="Mensagem", style=discord.TextStyle.paragraph, required=True)
@@ -61,10 +69,13 @@ class DMModal(discord.ui.Modal, title="Enviar DM"):
         try:
             await self.target_member.send(self.mensagem.value)
             await interaction.response.send_message(f"✅ Mensagem enviada para {self.target_member}.", ephemeral=True)
+            logger.info(f"DM enviada por {interaction.user.display_name} para {self.target_member.display_name}.")
         except discord.Forbidden:
             await interaction.response.send_message("❌ O usuário bloqueou ou desativou DMs.", ephemeral=True)
+            logger.warning(f"Não foi possível enviar DM para {self.target_member.display_name} (ID: {self.target_member.id}) - DMs bloqueadas.")
         except Exception as e:
             await interaction.response.send_message(f"❌ Erro ao enviar DM: {e}", ephemeral=True)
+            logger.error(f"Erro ao enviar DM para {self.target_member.display_name} (ID: {self.target_member.id}): {e}", exc_info=True)
 
 class FalarCog(commands.Cog):
     def __init__(self, bot: commands.Bot):
@@ -88,17 +99,25 @@ class FalarCog(commands.Cog):
 
         if not (cargos & AUTHORIZED_ROLES):
             await interaction.response.send_message("❌ Você não tem permissão para usar este comando.", ephemeral=True)
+            logger.warning(f"Comando /falar: Tentativa de uso sem permissão por {interaction.user.display_name}.")
             return
 
         if metodo.value == "embed":
-            await interaction.response.send_modal(EmbedModal(interaction))
+            await interaction.response.send_modal(EmbedModal(interaction, self.bot.user))
         elif metodo.value == "dm":
             if not usuario:
                 await interaction.response.send_message("❌ Você precisa fornecer um usuário para enviar DM.", ephemeral=True)
                 return
             target = discord.utils.get(interaction.guild.members, name=usuario)
             if not target:
+                try:
+                    target = await self.bot.fetch_user(int(usuario))
+                except (ValueError, discord.NotFound):
+                    target = None
+
+            if not target:
                 await interaction.response.send_message("❌ Usuário não encontrado.", ephemeral=True)
+                logger.warning(f"Comando /falar dm: Usuário '{usuario}' não encontrado.")
                 return
             await interaction.response.send_modal(DMModal(target))
 

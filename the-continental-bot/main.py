@@ -1,124 +1,139 @@
 import discord
 from discord.ext import commands, tasks
 import asyncio
+import logging
 
 # imports locais
 from config import TOKEN, CATEGORIA_FARM_ID, ID_MARCADOR, ID_MARCADOR_REGISTRO, ID_MARCADOR_PEDIDO, CANAL_REGISTRO_ID, CANAL_LOG_ID, CANAL_PEDIDO_ID
-from farmview import FarmView, enviar_botao_se_necessario
-from registro import enviar_botao_registro, RegistroView, verificar_registro_apagado, AvaliacaoRegistroView
-from pedido import PedidoView
-from utils_prints import limpar_prints_expirados
-from utils_embeds import criar_embed
+from views.farmview import FarmView # Importação corrigida
+from views.registro import RegistroView # AvaliacaoRegistroView não deve ser importada aqui para registro global
+from views.pedido import PedidoView # Importação corrigida
+from utils.utils_prints import limpar_prints_expirados # Importação corrigida
+from utils.utils_embeds import criar_embed # Importação corrigida
+from utils.utils_discord import limpar_e_enviar_view # Importação da nova função utilitária
+
+# Configuração básica de logging
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
 
 intents = discord.Intents.all()
 bot = commands.Bot(command_prefix="/", intents=intents)
 
+# Sets para suprimir recriação de botões durante operações
 bot._suppress_recreate_farm     = set()
 bot._suppress_recreate_registro = set()
 bot._suppress_recreate_pedido   = set()
-
 
 @tasks.loop(hours=24)
 async def task_limpar_prints():
     try:
         removidos = limpar_prints_expirados()
         if removidos:
-            print(f"🧹 Limpeza de prints: {removidos} removido(s).")
+            logger.info(f"🧹 Limpeza de prints: {removidos} removido(s).")
     except Exception as e:
-        print(f"❌ Erro na limpeza de prints: {e}")
-
+        logger.error(f"❌ Erro na limpeza de prints: {e}", exc_info=True)
 
 @task_limpar_prints.before_loop
 async def _before_task():
     await bot.wait_until_ready()
 
-
 @bot.event
 async def on_ready():
-    print(f"✅ Bot conectado como {bot.user}")
+    logger.info(f"✅ Bot conectado como {bot.user}")
 
     try:
+        # Registrar views persistentes
         bot.add_view(RegistroView())
         bot.add_view(PedidoView(bot))
         bot.add_view(FarmView())
-        bot.add_view(AvaliacaoRegistroView(None, "", ""))
-        print("✅ Views registradas globalmente")
+        # AvaliacaoRegistroView é contextual e não deve ser registrada globalmente sem argumentos
+        logger.info("✅ Views persistentes registradas globalmente.")
 
-        await enviar_botao_registro(bot)
+        # Enviar botão de registro
+        canal_registro = bot.get_channel(CANAL_REGISTRO_ID)
+        if canal_registro:
+            embed_registro = criar_embed(
+                title="📋 Registro de Novos Membros",
+                description="Clique no botão abaixo para registrar-se no cartel.",
+                color=0x272727,
+            )
+            await limpar_e_enviar_view(
+                canal_registro,
+                bot.user,
+                ID_MARCADOR_REGISTRO,
+                embed_registro,
+                RegistroView(),
+                bot._suppress_recreate_registro,
+                canal_registro.id
+            )
+        else:
+            logger.warning(f"❌ Canal de registro (ID: {CANAL_REGISTRO_ID}) não encontrado.")
 
+        # Enviar botão de pedido
         canal_pedido = bot.get_channel(CANAL_PEDIDO_ID)
         if canal_pedido:
-            ja_existe = False
-            async for msg in canal_pedido.history(limit=50):
-                if (
-                    msg.author == bot.user
-                    and msg.components
-                    and (msg.content or "").strip() == ID_MARCADOR_PEDIDO # Usar ID_MARCADOR_PEDIDO
-                ):
-                    ja_existe = True
-                    break
-            if not ja_existe:
-                bot._suppress_recreate_pedido.add(canal_pedido.id)
-                try:
-                    async for msg in canal_pedido.history(limit=50):
-                        if msg.author == bot.user and msg.components:
-                            try:
-                                await msg.delete()
-                            except Exception:
-                                pass
-                    await canal_pedido.send(
-                        content=ID_MARCADOR_PEDIDO, # Usar ID_MARCADOR_PEDIDO
-                        embed=criar_embed(
-                            title="📦 Pedidos de Armas",
-                            description="Clique no botão abaixo para solicitar um orçamento.",
-                            color=0x272727,
-                        ),
-                        view=PedidoView(bot)
-                    )
-                    print("✅ Botão de pedido criado.")
-                finally:
-                    bot._suppress_recreate_pedido.discard(canal_pedido.id)
+            embed_pedido = criar_embed(
+                title="📦 Pedidos de Armas",
+                description="Clique no botão abaixo para solicitar um orçamento.",
+                color=0x272727,
+            )
+            await limpar_e_enviar_view(
+                canal_pedido,
+                bot.user,
+                ID_MARCADOR_PEDIDO,
+                embed_pedido,
+                PedidoView(bot),
+                bot._suppress_recreate_pedido,
+                canal_pedido.id
+            )
+        else:
+            logger.warning(f"❌ Canal de pedido (ID: {CANAL_PEDIDO_ID}) não encontrado.")
 
+        # Enviar botões de farm nos canais de farm existentes
         for guild in bot.guilds:
             for canal in guild.text_channels:
                 if canal.category_id == CATEGORIA_FARM_ID and canal.id != CANAL_PEDIDO_ID:
-                    ja_existe = False
-                    async for msg in canal.history(limit=50):
-                        if (
-                            msg.author == bot.user
-                            and msg.components
-                            and (msg.content or "").strip() == ID_MARCADOR # Usar ID_MARCADOR
-                        ):
-                            ja_existe = True
-                            break
-                    if not ja_existe:
-                        bot._suppress_recreate_farm.add(canal.id)
-                        try:
-                            await enviar_botao_se_necessario(canal, bot.user)
-                        finally:
-                            bot._suppress_recreate_farm.discard(canal.id)
+                    embed_farm = criar_embed(
+                        title="Entrega do Farm Semanal",
+                        description="Clique no botão abaixo para entregar seu farm.",
+                        color=0x272727
+                    )
+                    await limpar_e_enviar_view(
+                        canal,
+                        bot.user,
+                        ID_MARCADOR,
+                        embed_farm,
+                        FarmView(),
+                        bot._suppress_recreate_farm,
+                        canal.id
+                    )
 
         synced = await bot.tree.sync()
-        print(f"🔁 Comandos de barra sincronizados: {len(synced)} comandos")
+        logger.info(f"🔁 Comandos de barra sincronizados: {len(synced)} comandos")
 
     except Exception as e:
-        print(f"❌ Erro no on_ready: {e}")
+        logger.error(f"❌ Erro no on_ready: {e}", exc_info=True)
 
     if not task_limpar_prints.is_running():
         task_limpar_prints.start()
 
-
 @bot.event
 async def on_guild_channel_create(canal):
     if isinstance(canal, discord.TextChannel) and canal.category_id == CATEGORIA_FARM_ID and canal.id != CANAL_PEDIDO_ID:
-        if canal.id in getattr(bot, "_suppress_recreate_farm", set()):
-            return
-        bot._suppress_recreate_farm.add(canal.id)
-        try:
-            await enviar_botao_se_necessario(canal, bot.user)
-        finally:
-            bot._suppress_recreate_farm.discard(canal.id)
-
+        embed_farm = criar_embed(
+            title="Entrega do Farm Semanal",
+            description="Clique no botão abaixo para entregar seu farm.",
+            color=0x272727
+        )
+        await limpar_e_enviar_view(
+            canal,
+            bot.user,
+            ID_MARCADOR,
+            embed_farm,
+            FarmView(),
+            bot._suppress_recreate_farm,
+            canal.id
+        )
 
 @bot.event
 async def on_message_delete(message: discord.Message):
@@ -128,46 +143,58 @@ async def on_message_delete(message: discord.Message):
     conteudo = (message.content or "").strip()
 
     if conteudo == ID_MARCADOR:
-        if message.channel.id in getattr(bot, "_suppress_recreate_farm", set()):
-            return
         if message.channel.id == CANAL_PEDIDO_ID:
             return
-        bot._suppress_recreate_farm.add(message.channel.id)
-        try:
-            await enviar_botao_se_necessario(message.channel, bot.user)
-        finally:
-            bot._suppress_recreate_farm.discard(message.channel.id)
+        embed_farm = criar_embed(
+            title="Entrega do Farm Semanal",
+            description="Clique no botão abaixo para entregar seu farm.",
+            color=0x272727
+        )
+        await limpar_e_enviar_view(
+            message.channel,
+            bot.user,
+            ID_MARCADOR,
+            embed_farm,
+            FarmView(),
+            bot._suppress_recreate_farm,
+            message.channel.id
+        )
 
     elif conteudo == ID_MARCADOR_REGISTRO:
-        if message.channel.id in getattr(bot, "_suppress_recreate_registro", set()):
-            return
-        await enviar_botao_registro(bot)
+        canal_registro = bot.get_channel(CANAL_REGISTRO_ID)
+        if canal_registro:
+            embed_registro = criar_embed(
+                title="📋 Registro de Novos Membros",
+                description="Clique no botão abaixo para registrar-se no cartel.",
+                color=0x272727,
+            )
+            await limpar_e_enviar_view(
+                canal_registro,
+                bot.user,
+                ID_MARCADOR_REGISTRO,
+                embed_registro,
+                RegistroView(),
+                bot._suppress_recreate_registro,
+                canal_registro.id
+            )
 
     elif conteudo == ID_MARCADOR_PEDIDO:
-        if message.channel.id in getattr(bot, "_suppress_recreate_pedido", set()):
-            return
-        canal = bot.get_channel(CANAL_PEDIDO_ID)
-        if canal:
-            bot._suppress_recreate_pedido.add(canal.id)
-            try:
-                async for msg in canal.history(limit=50):
-                    if msg.author == bot.user and msg.components:
-                        try:
-                            await msg.delete()
-                        except Exception:
-                            pass
-                await canal.send(
-                    content=ID_MARCADOR_PEDIDO,
-                    embed=criar_embed(
-                        title="📦 Pedidos de Armas",
-                        description="Clique no botão abaixo para solicitar um orçamento.",
-                        color=0x272727,
-                    ),
-                    view=PedidoView(bot)
-                )
-            finally:
-                bot._suppress_recreate_pedido.discard(canal.id)
-
+        canal_pedido = bot.get_channel(CANAL_PEDIDO_ID)
+        if canal_pedido:
+            embed_pedido = criar_embed(
+                title="📦 Pedidos de Armas",
+                description="Clique no botão abaixo para solicitar um orçamento.",
+                color=0x272727,
+            )
+            await limpar_e_enviar_view(
+                canal_pedido,
+                bot.user,
+                ID_MARCADOR_PEDIDO,
+                embed_pedido,
+                PedidoView(bot),
+                bot._suppress_recreate_pedido,
+                canal_pedido.id
+            )
 
 @bot.event
 async def on_member_join(member):
@@ -179,8 +206,7 @@ async def on_member_join(member):
                 f"Por favor, vá até o canal <#{canal_registro.id}> e clique no botão para se registrar no cartel."
             )
         except discord.Forbidden:
-            print(f"⚠️ Não foi possível enviar DM para {member.display_name}.")
-
+            logger.warning(f"⚠️ Não foi possível enviar DM para {member.display_name}.")
 
 @bot.event
 async def on_member_remove(member):
@@ -208,15 +234,16 @@ async def on_member_remove(member):
                     except discord.Forbidden:
                         if canal_log:
                             await canal_log.send(f"⚠️ Não consegui deletar o canal `{canal.name}` de {member.mention}.")
-
+                    except Exception as e:
+                        logger.error(f"❌ Erro ao deletar canal {canal.name} de {member.display_name}: {e}", exc_info=True)
 
 async def main():
     async with bot:
-        await bot.load_extension("farm_cog")
-        await bot.load_extension("pedido_cog")
-        await bot.load_extension("registrar_cog")
-        await bot.load_extension("falar_cog") # Certifique-se de que este cog existe
+        await bot.load_extension("cogs.farm_cog")
+        await bot.load_extension("cogs.pedido_cog")
+        await bot.load_extension("cogs.registrar_cog")
+        await bot.load_extension("cogs.falar_cog")
         await bot.start(TOKEN)
 
-
-asyncio.run(main())
+if __name__ == "__main__":
+    asyncio.run(main())
