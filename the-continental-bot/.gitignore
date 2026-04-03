@@ -1,0 +1,6 @@
+.env
+prints.json
+imagens/
+__pycache__/
+*.pyc
+*.pyo
