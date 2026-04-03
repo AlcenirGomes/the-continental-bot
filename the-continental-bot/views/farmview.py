@@ -1,193 +1,228 @@
-import asyncio
 import discord
+import traceback
 import logging
-import os
 from discord.ui import Modal, TextInput, View, Button
+from config import CARGO_ID, ID_MARCADOR, CATEGORIA_FARM_ID
 from datetime import datetime
-
-from config import ID_MARCADOR, CATEGORIA_FARM_ID
-from utils.utils_prints import registrar_print
-from utils.utils_embeds import criar_embed
-from utils.utils_cloudinary import salvar_print_cloudinary
+from utils_prints import registrar_print
+from utils_embeds import criar_embed
 
 logger = logging.getLogger(__name__)
 
-
-class FarmModalParte1(Modal, title='Coleta de Materiais - Parte 1'):
+class FarmModalParte1(Modal, title="Coleta de Materiais - Parte 1"):
     def __init__(self):
         super().__init__()
-        self.cabo     = TextInput(label='Cabo',     required=True)
-        self.clip     = TextInput(label='Clip',     required=True)
-        self.culatra  = TextInput(label='Culatra',  required=True)
-        self.ferrolho = TextInput(label='Ferrolho', required=True)
-        self.slide    = TextInput(label='Slide',    required=True)
-        for campo in (self.cabo, self.clip, self.culatra, self.ferrolho, self.slide):
-            self.add_item(campo)
+        self.cabo = TextInput(label="Cabo", required=True)
+        self.clip = TextInput(label="Clip", required=True)
+        self.culatra = TextInput(label="Culatra", required=True)
+        self.ferrolho = TextInput(label="Ferrolho", required=True)
+        self.slide = TextInput(label="Slide", required=True)
+
+        self.add_item(self.cabo)
+        self.add_item(self.clip)
+        self.add_item(self.culatra)
+        self.add_item(self.ferrolho)
+        self.add_item(self.slide)
 
     async def on_submit(self, interaction: discord.Interaction):
         try:
             valores_parte1 = {
-                'Cabo':     self.cabo.value.strip(),
-                'Clip':     self.clip.value.strip(),
-                'Culatra':  self.culatra.value.strip(),
-                'Ferrolho': self.ferrolho.value.strip(),
-                'Slide':    self.slide.value.strip(),
+                "Cabo": self.cabo.value.strip(),
+                "Clip": self.clip.value.strip(),
+                "Culatra": self.culatra.value.strip(),
+                "Ferrolho": self.ferrolho.value.strip(),
+                "Slide": self.slide.value.strip(),
             }
+
+            view = ContinuarView(valores_parte1)
             await interaction.response.send_message(
-                'Parte 1 recebida! Clique no botao abaixo para informar o Titanio.',
-                view=ContinuarView(valores_parte1),
-                ephemeral=True,
+                "✅ Parte 1 recebida! Clique no botão abaixo para informar o Titânio.",
+                view=view,
+                ephemeral=True
             )
         except Exception:
-            logger.exception('Erro ao processar FarmModalParte1')
-            try:
-                await interaction.response.send_message('Erro ao processar Parte 1.', ephemeral=True)
-            except discord.HTTPException:
-                pass
+            traceback.print_exc()
+            await interaction.response.send_message("❌ Erro ao processar Parte 1.", ephemeral=True)
 
-
-class FarmModalParte2(Modal, title='Coleta de Materiais - Parte 2'):
-    def __init__(self, valores_parte1):
+class FarmModalParte2(Modal, title="Coleta de Materiais - Parte 2"):
+    def __init__(self, valores_parte1: dict):
         super().__init__()
         self.valores_parte1 = valores_parte1
-        self.titanio = TextInput(label='Titanio', required=True)
+        self.titanio = TextInput(label="Titânio", required=True)
         self.add_item(self.titanio)
 
     async def on_submit(self, interaction: discord.Interaction):
         try:
-            valores = {k: int(v) for k, v in self.valores_parte1.items()}
-            valores['Titanio'] = int(self.titanio.value.strip())
-        except ValueError:
-            await interaction.response.send_message('Todos os valores devem ser numeros inteiros.', ephemeral=True)
-            return
-
-        await interaction.response.send_message('Valores recebidos! Agora envie um print (imagem) neste canal.', ephemeral=True)
-
-        def check_img(msg):
-            return (msg.author == interaction.user and msg.channel == interaction.channel and bool(msg.attachments))
-
-        try:
-            img_msg = await interaction.client.wait_for('message', check=check_img, timeout=120)
-        except asyncio.TimeoutError:
-            await interaction.followup.send('Tempo esgotado. Nenhuma imagem recebida.', ephemeral=True)
-            return
-        except Exception:
-            logger.exception('Erro ao aguardar print de %s', interaction.user)
-            await interaction.followup.send('Erro ao aguardar imagem.', ephemeral=True)
-            return
-
-        anexo        = img_msg.attachments[0]
-        cdn_url      = anexo.url
-        extensao     = os.path.splitext(anexo.filename)[1] or '.png'
-        data_str     = datetime.now().strftime('%Y-%m-%d_%H-%M-%S')
-        nome_arquivo = f'{interaction.user.id}_{data_str}{extensao}'
-
-        await interaction.followup.send('Salvando imagem...', ephemeral=True)
-
-        cloudinary_url = await salvar_print_cloudinary(cdn_url, nome_arquivo)
-
-        if not cloudinary_url:
-            await interaction.followup.send('Nao consegui salvar permanentemente. Continuando com URL temporaria.', ephemeral=True)
-
-        url_para_embed = cloudinary_url or cdn_url
-
-        registrar_print(user_id=interaction.user.id, cdn_url=cdn_url, nome_arquivo=nome_arquivo, cloudinary_url=cloudinary_url)
-
-        try:
-            await img_msg.delete()
-        except discord.HTTPException:
-            pass
-
-        arquivo = await anexo.to_file()
-
-        apelido = interaction.user.nick or interaction.user.name
-        if ' | ' in apelido:
-            base_nome, passaporte = apelido.replace('M ', '').split(' | ', 1)
-            nome_canal_esperado = f'M{base_nome.lower().replace(chr(32), chr(45))}-{passaporte}'
-        else:
-            nome_canal_esperado = apelido.lower().replace(' ', '-')
-
-        canal = interaction.channel
-        user_no_topico = canal.topic and str(interaction.user.id) in canal.topic
-        if not user_no_topico and canal.name != nome_canal_esperado:
             try:
-                await canal.edit(name=nome_canal_esperado)
-            except discord.Forbidden:
-                await interaction.followup.send('Nao consegui renomear o canal.', ephemeral=True)
+                valores = {k: int(v) for k, v in self.valores_parte1.items()}
+                valores["Titânio"] = int(self.titanio.value.strip())
+            except ValueError:
+                await interaction.response.send_message("❌ Todos os valores devem ser inteiros.", ephemeral=True)
+                return
 
-        embed = criar_embed(
-            title='Coleta de Materiais',
-            description=f'{interaction.user.mention} enviou os seguintes dados:',
-            color=0x272727,
-            footer_text=f'Enviado por {interaction.user.name}',
-        )
-        for item, valor in valores.items():
-            embed.add_field(name=item, value=str(valor), inline=True)
+            await interaction.response.send_message("✅ Valores recebidos! Agora envie um print (imagem).", ephemeral=True)
 
-        embed.set_image(url=f'attachment://{arquivo.filename}')
-        embed.add_field(name='Print Enviado', value=f'[Clique aqui para visualizar]({url_para_embed})', inline=False)
+            def check_img(msg):
+                return msg.author == interaction.user and msg.channel == interaction.channel and msg.attachments
 
-        mensagem_embed = await canal.send(content=interaction.user.mention, embed=embed, file=arquivo)
+            try:
+                img_msg = await interaction.client.wait_for("message", check=check_img, timeout=120)
+                anexo = img_msg.attachments[0]
+                imagem_url = anexo.url
 
-        from views.coleta import AvaliacaoView
-        await mensagem_embed.edit(view=AvaliacaoView(mensagem_embed, embed, interaction.user))
-        await canal.send('Dados enviados com sucesso!', delete_after=10)
+                data_str = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+                nome_arquivo = f"{interaction.user.id}_{data_str}.png"
 
-        logger.info('Coleta registrada - user=%s cloudinary=%s', interaction.user.id, cloudinary_url or 'fallback')
+                registrar_print(user_id=interaction.user.id, cdn_url=imagem_url, nome_arquivo=nome_arquivo)
 
+                arquivo = await anexo.to_file()
+
+                try:
+                    await img_msg.delete()
+                except Exception:
+                    pass
+
+            except Exception:
+                await interaction.followup.send("⏰ Tempo esgotado para enviar a imagem. Operação cancelada.", ephemeral=True)
+                return
+
+            apelido = interaction.user.nick or interaction.user.name
+            if " | " in apelido:
+                base_nome, passaporte = apelido.replace("『 M 』", "").split(" | ", 1)
+                nome_canal_esperado = f"『M』{base_nome.lower().replace(' ', '-')}-{passaporte}"
+            else:
+                nome_canal_esperado = apelido.lower().replace(" ", "-")
+
+            if not interaction.channel.topic or str(interaction.user.id) not in interaction.channel.topic:
+                if interaction.channel.name != nome_canal_esperado:
+                    try:
+                        await interaction.channel.edit(name=nome_canal_esperado)
+                    except discord.Forbidden:
+                        await interaction.followup.send(
+                            "⚠️ Não consegui renomear o canal. Permissões insuficientes.", ephemeral=True
+                        )
+
+            cargo = interaction.guild.get_role(CARGO_ID)
+            embed = criar_embed(
+                title="📦 Coleta de Materiais",
+                description=f"{interaction.user.mention} enviou os seguintes dados:",
+                color=0x272727,
+                footer_text=f"Enviado por {interaction.user.name}",
+            )
+            for item, valor in valores.items():
+                embed.add_field(name=item, value=str(valor), inline=True)
+
+            embed.set_image(url=f"attachment://{arquivo.filename}")
+            embed.add_field(name="📷 Print Enviado", value=f"[Clique aqui para visualizar]({imagem_url})", inline=False)
+
+            mensagem_embed = await interaction.channel.send(
+                content=f"{interaction.user.mention}",
+                embed=embed,
+                file=arquivo
+            )
+
+            from coleta import AvaliacaoView
+            await mensagem_embed.edit(view=AvaliacaoView(mensagem_embed, embed, interaction.user))
+
+            await interaction.channel.send("✅ Dados enviados com sucesso!", delete_after=10)
+
+        except Exception:
+            traceback.print_exc()
+            await interaction.response.send_message("❌ Erro ao processar Parte 2.", ephemeral=True)
 
 class ContinuarView(discord.ui.View):
-    def __init__(self, valores_parte1):
+    def __init__(self, valores_parte1: dict):
         super().__init__(timeout=60)
         self.valores_parte1 = valores_parte1
 
-    @discord.ui.button(label='Continuar com Titanio', style=discord.ButtonStyle.primary, custom_id='continuar_farm')
+    @discord.ui.button(label="➡️ Continuar com Titânio", style=discord.ButtonStyle.primary)
     async def continuar(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.send_modal(FarmModalParte2(self.valores_parte1))
-
 
 class FarmView(View):
     def __init__(self):
         super().__init__(timeout=None)
 
-    @discord.ui.button(label='Abrir Formulario de Coleta', style=discord.ButtonStyle.primary, custom_id='botao_farm')
+    @discord.ui.button(
+        label="Abrir Formulário de Coleta",
+        style=discord.ButtonStyle.primary,
+        custom_id="botao_farm"
+    )
     async def open_modal(self, interaction: discord.Interaction, button: Button):
         try:
+            print(f"[DEBUG] open_modal chamado por {interaction.user} em {interaction.channel}")
             await interaction.response.send_modal(FarmModalParte1())
+
             try:
                 await interaction.message.delete()
-            except discord.HTTPException:
+            except Exception:
                 pass
+
         except Exception:
-            logger.exception('Erro ao abrir FarmModalParte1')
+            traceback.print_exc()
             try:
-                await interaction.response.send_message('Erro ao abrir o formulario.', ephemeral=True)
-            except discord.HTTPException:
+                await interaction.response.send_message("❌ Erro ao abrir o formulário.", ephemeral=True)
+            except Exception:
                 pass
 
-
-async def enviar_botao_se_necessario(canal, bot_user):
+async def enviar_botao_se_necessario(canal: discord.TextChannel, bot_user):
     if canal.category_id != CATEGORIA_FARM_ID:
         return
     try:
         async for msg in canal.history(limit=50):
-            if (msg.author == bot_user and msg.components and (msg.content or '').strip() == ID_MARCADOR):
-                logger.info('Botao ja existe em #%s, ignorando.', canal.name)
+            if (
+                msg.author == bot_user
+                and msg.components
+                and (msg.content or "").strip() == ID_MARCADOR
+            ):
+                print(f"⚠️ Botão já existe no canal {canal.name}, não vou duplicar.")
                 return
+
         async for msg in canal.history(limit=50):
             if msg.author == bot_user and msg.components:
                 try:
                     await msg.delete()
-                except discord.HTTPException:
+                except Exception:
                     pass
-        embed = criar_embed(title='Entrega do Farm Semanal', description='Clique no botao abaixo para entregar seu farm.', color=0x272727)
+
+        embed = criar_embed(
+            title="Entrega do Farm Semanal",
+            description="Clique no botão abaixo para entregar seu farm.",
+            color=0x272727
+        )
         await canal.send(content=ID_MARCADOR, embed=embed, view=FarmView())
-        logger.info('Botao de farm enviado em #%s', canal.name)
+        print(f"✅ Botão de farm enviado automaticamente no canal {canal.name} (ID: {canal.id})")
+
     except discord.Forbidden:
-        logger.warning('Sem permissao em #%s', canal.name)
-    except Exception:
-        logger.exception('Erro ao enviar botao em #%s', canal.name)
+        print(f"⚠️ Sem permissão para enviar mensagem em: {canal.name}")
+    except Exception as e:
+        print(f"❌ Erro ao enviar botão automático no canal {canal.name}: {e}")
 
+async def enviar_botao_farm(canal: discord.TextChannel):
+    try:
+        async for msg in canal.history(limit=50):
+            if (
+                msg.author == canal.guild.me
+                and msg.components
+                and (msg.content or "").strip() == ID_MARCADOR
+            ):
+                print(f"⚠️ Botão já existe no canal {canal.name}, não vou duplicar.")
+                return
 
-async def enviar_botao_farm(canal):
-    await enviar_botao_se_necessario(canal, canal.guild.me)
+        async for msg in canal.history(limit=50):
+            if msg.author == canal.guild.me and msg.components:
+                try:
+                    await msg.delete()
+                except Exception:
+                    pass
+
+        embed = criar_embed(
+            title="Entrega do Farm Semanal",
+            description="Clique no botão abaixo para entregar seu farm.",
+            color=0x272727
+        )
+        await canal.send(content=ID_MARCADOR, embed=embed, view=FarmView())
+        print(f"✅ Botão de farm enviado via registro no canal {canal.name} (ID: {canal.id})")
+
+    except Exception as e:
+        print(f"❌ Erro ao enviar botão via registro no canal {canal.name}: {e}")

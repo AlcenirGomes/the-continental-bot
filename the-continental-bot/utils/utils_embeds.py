@@ -4,19 +4,19 @@ LOGO_URL = "https://cdn.discordapp.com/attachments/1398335026122457101/141160764
 FOOTER_PREFIX = "Alta Cúpula The Continental!!!"
 
 def criar_embed(
-    title=None,
-    description=None,
-    color=0x272727,
-    footer_text="",
-    image_url=None,
-):
+    title: str | None = None,
+    description: str | None = None,
+    color: discord.Color | int = 0x272727,
+    footer_text: str = "",
+    image_url: str | None = None,
+) -> discord.Embed:
     if isinstance(color, int):
         color = discord.Color(color)
 
     embed = discord.Embed(title=title, description=description, color=color)
 
     texto_footer = FOOTER_PREFIX if not footer_text else f"{FOOTER_PREFIX} | {footer_text}"
-    embed.set_footer(text=texto_footer, icon_url=LOGO_URL or None)
+    embed.set_footer(text=texto_footer, icon_url=LOGO_URL or None) # CORRIGIDO: Usar 'or None'
 
     if LOGO_URL:
         embed.set_thumbnail(url=LOGO_URL)

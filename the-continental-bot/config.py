@@ -6,9 +6,10 @@ load_dotenv()
 CARGO_ID          = 1410706622317330633
 CATEGORIA_FARM_ID = 1410706623865032719
 
-ID_MARCADOR          = "__FARM_BOT_MARKER__"
-ID_MARCADOR_REGISTRO = "__REGISTRO_BOT_MARKER__"
-ID_MARCADOR_PEDIDO   = "__PEDIDO_BOT_MARKER__"
+# Marcadores invisíveis para o bot identificar as mensagens
+ID_MARCADOR          = "\u200b" # Caractere de espaço de largura zero
+ID_MARCADOR_REGISTRO = "\u200c" # Caractere de não-junção de largura zero
+ID_MARCADOR_PEDIDO   = "\u200d" # Caractere de junção de largura zero
 
 CANAL_REGISTRO_ID  = 1410706625374847115
 CANAL_APROVACAO_ID = 1410706622317330640
